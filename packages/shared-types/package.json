@@ -1,0 +1,8 @@
+{
+  "name": "@stock-advisor/shared-types",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./api": "./src/api.d.ts"
+  }
+}

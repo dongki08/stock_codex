@@ -1,0 +1,12 @@
+.idea/
+.vscode/
+.superpowers/
+node_modules/
+dist/
+build/
+.gradle/
+out/
+target/
+.env
+*.log
+application-local.yml
