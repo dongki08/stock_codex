@@ -10,3 +10,4 @@ target/
 .env
 *.log
 application-local.yml
+.claude/

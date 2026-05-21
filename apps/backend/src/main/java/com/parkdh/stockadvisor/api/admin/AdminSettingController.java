@@ -42,7 +42,7 @@ public class AdminSettingController { // 관리자 설정 컨트롤러를 정의
     ) // Swagger 문서 정의를 종료한다.
     @GetMapping("/settings") // 설정 목록 조회 경로를 매핑한다.
     public ResultDto<?> getSettings() { // 설정 목록 조회 API를 정의한다.
-        return adminSettingService.getSettings(); // 서비스 조회 결과를 그대로 반환한다.
+        return ResultDto.success(adminSettingService.getSettings()); // 서비스 조회 결과를 성공 응답으로 래핑해 반환한다.
     } // 설정 목록 조회 API를 종료한다.
 
     @Operation( // Swagger 문서 정보를 정의한다.
@@ -65,7 +65,7 @@ public class AdminSettingController { // 관리자 설정 컨트롤러를 정의
     ) // Swagger 문서 정의를 종료한다.
     @GetMapping("/settings/{key}") // 설정 단건 조회 경로를 매핑한다.
     public ResultDto<?> getSetting(@PathVariable String key) { // 설정 단건 조회 API를 정의한다.
-        return adminSettingService.getSetting(key); // 서비스 조회 결과를 그대로 반환한다.
+        return ResultDto.success(adminSettingService.getSetting(key)); // 서비스 조회 결과를 성공 응답으로 래핑해 반환한다.
     } // 설정 단건 조회 API를 종료한다.
 
     @Operation( // Swagger 문서 정보를 정의한다.
@@ -91,7 +91,7 @@ public class AdminSettingController { // 관리자 설정 컨트롤러를 정의
     ) // Swagger 문서 정의를 종료한다.
     @PutMapping("/settings/{key}") // 설정 수정 경로를 매핑한다.
     public ResultDto<?> updateSetting(@PathVariable String key, @Valid @RequestBody AdminSettingUpdateRequest request) { // 설정 수정 API를 정의한다.
-        return adminSettingService.updateSetting(key, request); // 서비스 수정 결과를 그대로 반환한다.
+        return ResultDto.success(adminSettingService.updateSetting(key, request)); // 서비스 수정 결과를 성공 응답으로 래핑해 반환한다.
     } // 설정 수정 API를 종료한다.
 
     @Operation( // Swagger 문서 정보를 정의한다.
@@ -114,7 +114,7 @@ public class AdminSettingController { // 관리자 설정 컨트롤러를 정의
     ) // Swagger 문서 정의를 종료한다.
     @PostMapping("/settings/reset") // 기본 설정 초기화 경로를 매핑한다.
     public ResultDto<?> resetSettings() { // 기본 설정 초기화 API를 정의한다.
-        return adminSettingService.resetSettings(); // 서비스 초기화 결과를 그대로 반환한다.
+        return ResultDto.success(adminSettingService.resetSettings()); // 서비스 초기화 결과를 성공 응답으로 래핑해 반환한다.
     } // 기본 설정 초기화 API를 종료한다.
 
     @Operation( // Swagger 문서 정보를 정의한다.
@@ -137,6 +137,6 @@ public class AdminSettingController { // 관리자 설정 컨트롤러를 정의
     ) // Swagger 문서 정의를 종료한다.
     @GetMapping("/audit-logs") // 감사 로그 조회 경로를 매핑한다.
     public ResultDto<?> getAuditLogs() { // 감사 로그 조회 API를 정의한다.
-        return adminSettingService.getAuditLogs(); // 서비스 조회 결과를 그대로 반환한다.
+        return ResultDto.success(adminSettingService.getAuditLogs()); // 서비스 조회 결과를 성공 응답으로 래핑해 반환한다.
     } // 감사 로그 조회 API를 종료한다.
 } // 관리자 설정 컨트롤러를 종료한다.

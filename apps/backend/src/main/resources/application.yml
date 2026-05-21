@@ -16,3 +16,14 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /v3/api-docs
+
+stock-advisor:
+  security:
+    allowed-origins:
+      - http://localhost:5173
+      - http://127.0.0.1:5173
+    protect-dev-api: false
+  dart:
+    api-key: ${DART_API_KEY:dev-placeholder}
+  sec:
+    user-agent: ${SEC_USER_AGENT:StockAdvisor/1.0 contact@example.com}
