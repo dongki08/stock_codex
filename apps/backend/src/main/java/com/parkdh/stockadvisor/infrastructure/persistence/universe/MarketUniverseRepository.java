@@ -11,4 +11,8 @@ public interface MarketUniverseRepository extends JpaRepository<MarketUniverseEn
     List<MarketUniverseEntity> findByTradable(Boolean tradable); // 거래 가능 여부로 후보군을 조회한다.
 
     List<MarketUniverseEntity> findByMarketAndTradable(String market, Boolean tradable); // 시장 구분과 거래 가능 여부로 후보군을 조회한다.
+
+    List<MarketUniverseEntity> findByTradableAndDelistedAtIsNull(Boolean tradable); // 현재 상장된 거래 가능 후보군을 조회한다.
+
+    List<MarketUniverseEntity> findByMarketAndTradableAndDelistedAtIsNull(String market, Boolean tradable); // 시장별 현재 상장된 거래 가능 후보군을 조회한다.
 } // 시장 유니버스 저장소 인터페이스를 종료한다.

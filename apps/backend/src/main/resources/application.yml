@@ -22,7 +22,7 @@ stock-advisor:
     allowed-origins:
       - http://localhost:5173
       - http://127.0.0.1:5173
-    protect-dev-api: false
+    protect-dev-api: true
   dart:
     api-key: ${DART_API_KEY:dev-placeholder}
   sec:

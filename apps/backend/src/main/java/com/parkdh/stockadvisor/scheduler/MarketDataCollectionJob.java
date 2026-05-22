@@ -111,7 +111,7 @@ public class MarketDataCollectionJob {
     }
 
     private List<MarketUniverseEntity> topCandidates(String market, int limit) {
-        return marketUniverseRepository.findByMarketAndTradable(market, true).stream()
+        return marketUniverseRepository.findByMarketAndTradableAndDelistedAtIsNull(market, true).stream()
                 .sorted(Comparator.comparing(MarketUniverseEntity::getAvgTurnover, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(limit)
                 .toList();

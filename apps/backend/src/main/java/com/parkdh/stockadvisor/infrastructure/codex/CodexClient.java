@@ -1,9 +1,13 @@
 package com.parkdh.stockadvisor.infrastructure.codex;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.config.CodexCliProperties;
 import com.parkdh.stockadvisor.domain.codex.CodexCallEntity;
+import com.parkdh.stockadvisor.domain.setting.AppSettingEntity;
 import com.parkdh.stockadvisor.global.util.MarketUtil;
 import com.parkdh.stockadvisor.infrastructure.persistence.codex.CodexCallRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -12,7 +16,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -22,9 +29,12 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class CodexClient {
     private static final int TIMEOUT_SECONDS = 120;
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Seoul");
 
     private final CodexCliProperties codexCliProperties;
     private final CodexCallRepository codexCallRepository;
+    private final AppSettingRepository appSettingRepository;
+    private final ObjectMapper objectMapper;
 
     public CodexResult call(String prompt, String profile, String caller) {
         LocalDateTime calledAt = LocalDateTime.now();
@@ -36,6 +46,34 @@ public class CodexClient {
             long durationMs = System.currentTimeMillis() - startMs;
             saveLog(caller, prompt, response, null, true, durationMs, calledAt);
             return new CodexResult(true, response, null, durationMs);
+        }
+
+        int dailyCallLimit = resolveIntSetting("codex.daily.callLimit", 200);
+        long dailyCallCount = countTodayCalls();
+        if (dailyCallLimit >= 0 && dailyCallCount >= dailyCallLimit) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            String errorMessage = "Codex 일 호출 한도를 초과했습니다. limit=" + dailyCallLimit + ", todayCalls=" + dailyCallCount;
+            log.warn("[Codex] 호출 한도 초과 caller={} limit={} todayCalls={}", caller, dailyCallLimit, dailyCallCount);
+            String response = buildFallback(profile);
+            saveLog(caller, prompt, null, errorMessage, false, durationMs, calledAt);
+            return new CodexResult(false, response, errorMessage, durationMs);
+        }
+
+        double dailyBudgetUsd = resolveDoubleSetting("codex.daily.budgetUsd", 0.0);
+        if (dailyBudgetUsd > 0) {
+            double estimatedUsdPer1kChars = resolveDoubleSetting("codex.estimatedUsdPer1kChars", 0.002);
+            int estimatedResponseChars = resolveIntSetting("codex.estimatedResponseChars", 4000);
+            long todayTextLength = sumTodaySucceededTextLength();
+            long estimatedTextLength = todayTextLength + prompt.length() + Math.max(estimatedResponseChars, 0);
+            double estimatedBudgetUsd = estimateBudgetUsd(estimatedTextLength, estimatedUsdPer1kChars);
+            if (estimatedBudgetUsd >= dailyBudgetUsd) {
+                long durationMs = System.currentTimeMillis() - startMs;
+                String errorMessage = "Codex 일 예산 한도를 초과할 것으로 예상됩니다. budgetUsd=" + dailyBudgetUsd + ", estimatedUsd=" + String.format("%.4f", estimatedBudgetUsd);
+                log.warn("[Codex] 예산 한도 초과 caller={} budgetUsd={} estimatedUsd={}", caller, dailyBudgetUsd, estimatedBudgetUsd);
+                String response = buildFallback(profile);
+                saveLog(caller, prompt, null, errorMessage, false, durationMs, calledAt);
+                return new CodexResult(false, response, errorMessage, durationMs);
+            }
         }
 
         try {
@@ -81,6 +119,55 @@ public class CodexClient {
 
                 생성 시각: %s
                 """, profile, LocalDateTime.now());
+    }
+
+    private long countTodayCalls() {
+        LocalDate today = LocalDate.now(APP_ZONE);
+        return codexCallRepository.countByCalledAtBetween(today.atStartOfDay(), today.atTime(LocalTime.MAX));
+    }
+
+    private long sumTodaySucceededTextLength() {
+        LocalDate today = LocalDate.now(APP_ZONE);
+        return codexCallRepository.sumSucceededTextLengthByCalledAtBetween(today.atStartOfDay(), today.atTime(LocalTime.MAX));
+    }
+
+    private double estimateBudgetUsd(long textLength, double usdPer1kChars) {
+        if (usdPer1kChars <= 0) {
+            return 0.0;
+        }
+        return (textLength / 1000.0) * usdPer1kChars;
+    }
+
+    private int resolveIntSetting(String key, int defaultValue) {
+        return appSettingRepository.findById(key)
+                .map(AppSettingEntity::getValueJson)
+                .map(valueJson -> extractIntValue(valueJson, defaultValue))
+                .orElse(defaultValue);
+    }
+
+    private int extractIntValue(String valueJson, int defaultValue) {
+        try {
+            JsonNode node = objectMapper.readTree(valueJson);
+            return node.path("value").asInt(defaultValue);
+        } catch (Exception exception) {
+            return defaultValue;
+        }
+    }
+
+    private double resolveDoubleSetting(String key, double defaultValue) {
+        return appSettingRepository.findById(key)
+                .map(AppSettingEntity::getValueJson)
+                .map(valueJson -> extractDoubleValue(valueJson, defaultValue))
+                .orElse(defaultValue);
+    }
+
+    private double extractDoubleValue(String valueJson, double defaultValue) {
+        try {
+            JsonNode node = objectMapper.readTree(valueJson);
+            return node.path("value").asDouble(defaultValue);
+        } catch (Exception exception) {
+            return defaultValue;
+        }
     }
 
     private void saveLog(String caller, String prompt, String response,

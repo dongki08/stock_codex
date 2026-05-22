@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { AdminPage } from "./pages/AdminPage";
+import { BacktestsPage } from "./pages/BacktestsPage";
 import { InstrumentsPage } from "./pages/InstrumentsPage";
 import { MarketDataPage } from "./pages/MarketDataPage";
 import { RecommendationsPage } from "./pages/RecommendationsPage";
 import { StatsPage } from "./pages/StatsPage";
 import { UniversePage } from "./pages/UniversePage";
 
-type Page = "admin" | "instruments" | "marketData" | "recommendations" | "stats" | "universe";
+type Page = "admin" | "backtests" | "instruments" | "marketData" | "recommendations" | "stats" | "universe";
 
 export function App() {
   const [page, setPage] = useState<Page>("recommendations");
@@ -29,6 +30,9 @@ export function App() {
         <button className={page === "stats" ? "active" : ""} type="button" onClick={() => setPage("stats")}>
           성과 통계
         </button>
+        <button className={page === "backtests" ? "active" : ""} type="button" onClick={() => setPage("backtests")}>
+          백테스트
+        </button>
         <button className={page === "admin" ? "active" : ""} type="button" onClick={() => setPage("admin")}>
           관리자 설정
         </button>
@@ -38,6 +42,7 @@ export function App() {
       {page === "marketData" && <MarketDataPage />}
       {page === "instruments" && <InstrumentsPage />}
       {page === "stats" && <StatsPage />}
+      {page === "backtests" && <BacktestsPage />}
       {page === "admin" && <AdminPage />}
     </>
   );

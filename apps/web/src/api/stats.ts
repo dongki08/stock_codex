@@ -24,6 +24,8 @@ export interface StatsDailyResponse {
   count: number;
   hitCount: number;
   avgPnlPct: number;
+  totalPnlPct: number;
+  cumulativePnlPct: number;
 }
 
 export interface StatsStrategyResponse {

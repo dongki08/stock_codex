@@ -116,9 +116,9 @@ public class MarketDataSyncService { // 시장 데이터 동기화 서비스를 
 
     private List<MarketUniverseEntity> findCandidates(String market) { // 시장 조건으로 후보군을 조회한다.
         if ("ALL".equals(market)) { // 전체 시장 요청인지 확인한다.
-            return marketUniverseRepository.findByTradable(true); // 전체 거래 가능 후보군을 반환한다.
+            return marketUniverseRepository.findByTradableAndDelistedAtIsNull(true); // 전체 거래 가능 후보군을 반환한다.
         } // 전체 시장 확인을 종료한다.
-        return marketUniverseRepository.findByMarketAndTradable(market, true); // 특정 시장 후보군을 반환한다.
+        return marketUniverseRepository.findByMarketAndTradableAndDelistedAtIsNull(market, true); // 특정 시장 후보군을 반환한다.
     } // 후보군 조회를 종료한다.
 
     private List<DailyPriceRow> fetchDailyPrices(MarketUniverseEntity candidate, LocalDate from, LocalDate to, int maxRows) { // 후보군별 외부 일봉을 조회한다.

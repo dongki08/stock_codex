@@ -6,6 +6,8 @@ public record RecommendationCandidate( // 추천 후보 값을 정의한다.
         String ticker, // 종목 코드를 보관한다.
         String market, // 시장 구분을 보관한다.
         BigDecimal lastPrice, // 최근 가격을 보관한다.
+        BigDecimal marketCap, // 시가총액을 보관한다.
+        BigDecimal avgTurnover, // 평균 거래대금을 보관한다.
         String sector, // 섹터를 보관한다.
         String source, // 후보 출처를 보관한다.
         Integer score, // 종합 점수를 보관한다.

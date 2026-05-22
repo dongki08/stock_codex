@@ -265,6 +265,35 @@ select {
   font-size: 18px;
 }
 
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.compact-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.form-grid label {
+  display: grid;
+  gap: 6px;
+  color: #52616f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-grid input,
+.form-grid select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
 .instrument-form {
   display: grid;
   grid-template-columns: 140px 140px minmax(180px, 1fr) minmax(160px, 1fr) 96px auto;
@@ -702,6 +731,10 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .compact-grid {
+    grid-template-columns: 1fr;
+  }
+
   .check-field {
     padding-bottom: 0;
   }
@@ -782,7 +815,7 @@ textarea {
 .stat-card {
   background: #ffffff;
   border: 1px solid #d8e2ee;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 20px 24px;
 }
 
@@ -823,6 +856,62 @@ textarea {
   font-size: 15px;
   font-weight: 600;
   margin: 0 0 12px;
+}
+
+.roi-chart {
+  width: 100%;
+  min-height: 220px;
+  background: #ffffff;
+  border: 1px solid #d8e2ee;
+  border-radius: 8px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.roi-chart svg {
+  display: block;
+  width: 100%;
+  height: 220px;
+}
+
+.roi-axis {
+  stroke: #94a3b8;
+  stroke-width: 1;
+}
+
+.roi-grid {
+  stroke: #e5edf5;
+  stroke-width: 1;
+}
+
+.roi-line {
+  fill: none;
+  stroke: #2563eb;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.roi-point {
+  fill: #ffffff;
+  stroke: #2563eb;
+  stroke-width: 2;
+}
+
+.roi-label,
+.roi-date {
+  fill: #66788a;
+  font-size: 11px;
+}
+
+.roi-chart-empty {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  background: #ffffff;
+  border: 1px solid #d8e2ee;
+  border-radius: 8px;
+  color: #888;
 }
 
 .stats-table {

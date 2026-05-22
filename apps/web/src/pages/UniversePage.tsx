@@ -346,7 +346,34 @@ function getScoreClass(score: number | undefined) {
   return "score-pill warn";
 }
 
+type FeatureJsonDetails = {
+  contextScore?: number;
+  newsScore?: number;
+  disclosureScore?: number;
+  macroScore?: number;
+  fundamentalScore?: number;
+  newsCount?: number;
+  disclosureCount?: number;
+  macroObservationCount?: number;
+  fundamentalMetricCount?: number;
+  source?: string;
+};
+
+function parseFeatureDetails(feature?: UniverseFeature): FeatureJsonDetails | null {
+  if (!feature?.featureJson) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(feature.featureJson) as FeatureJsonDetails;
+  } catch {
+    return null;
+  }
+}
+
 function UniverseRow({ feature, item }: { feature?: UniverseFeature; item: MarketUniverseItem }) {
+  const featureDetails = parseFeatureDetails(feature);
+
   return (
     <tr>
       <td>
@@ -365,6 +392,12 @@ function UniverseRow({ feature, item }: { feature?: UniverseFeature; item: Marke
         {feature ? (
           <span className="subtle-text inline-score">
             기술 {feature.technicalScore} / RSI {feature.rsiScore} / 이평 {feature.movingAverageScore} / 거래량 {feature.volumeScore} / 품질 {feature.dataQualityScore} / {feature.priceHistoryCount}일
+            {featureDetails && typeof featureDetails.contextScore === "number" && (
+              <>
+                <br />
+                맥락 {featureDetails.contextScore} / 뉴스 {featureDetails.newsScore ?? "-"}({featureDetails.newsCount ?? 0}) / 공시 {featureDetails.disclosureScore ?? "-"}({featureDetails.disclosureCount ?? 0}) / 매크로 {featureDetails.macroScore ?? "-"} / 펀더멘털 {featureDetails.fundamentalScore ?? "-"}({featureDetails.fundamentalMetricCount ?? 0})
+              </>
+            )}
           </span>
         ) : (
           <span className="subtle-text">-</span>

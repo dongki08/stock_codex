@@ -16,6 +16,14 @@ public class MarketSignalScorer {
             "miss", "falls", "drop", "downgrade", "cuts", "loss", "probe", "lawsuit", "recall", "warning", "plunge",
             "하락", "급락", "적자", "감소", "부진", "소송", "리콜", "경고", "하향", "조사"
     );
+    private static final List<String> NEGATION_CUES = List.of(
+            "not", "no", "without", "caution", "risk", "avoid", "cancel", "cancellation", "concern",
+            "아닌", "없음", "취소", "조심", "주의", "우려", "위험", "부인", "철회"
+    );
+    private static final List<String> NEGATED_POSITIVE_PHRASES = List.of(
+            "contract cancellation", "approval canceled", "upgrade denied", "not upgrade", "not profit", "growth concern",
+            "수주 취소", "계약 취소", "승인 취소", "급등주 조심", "상승 주의", "호실적 아님", "성장 우려"
+    );
     private static final List<String> HIGH_IMPORTANCE_DISCLOSURES = List.of(
             "8-k", "merger", "acquisition", "bankruptcy", "offering", "guidance", "earnings", "material", "restatement",
             "합병", "분할", "유상증자", "무상증자", "전환사채", "영업정지", "횡령", "배임", "상장폐지", "실적", "잠정"
@@ -27,8 +35,12 @@ public class MarketSignalScorer {
 
     public BigDecimal scoreNewsSentiment(String title, String summary) {
         String text = normalize(title + " " + nullToEmpty(summary));
-        int positive = countMatches(text, POSITIVE_NEWS);
-        int negative = countMatches(text, NEGATIVE_NEWS);
+        PolarityCount polarity = countPolarity(text);
+        int positive = polarity.positive();
+        int negative = polarity.negative();
+        int negatedPositive = countMatches(text, NEGATED_POSITIVE_PHRASES);
+        positive = Math.max(0, positive - negatedPositive);
+        negative += negatedPositive;
         int raw = positive - negative;
         if (raw == 0) {
             return BigDecimal.ZERO.setScale(3);
@@ -81,6 +93,30 @@ public class MarketSignalScorer {
         return count;
     }
 
+    private PolarityCount countPolarity(String text) {
+        int positive = 0;
+        int negative = countMatches(text, NEGATIVE_NEWS);
+        for (String word : POSITIVE_NEWS) {
+            int index = text.indexOf(word);
+            if (index < 0) {
+                continue;
+            }
+            if (hasNearbyNegation(text, index)) {
+                negative++;
+            } else {
+                positive++;
+            }
+        }
+        return new PolarityCount(positive, negative);
+    }
+
+    private boolean hasNearbyNegation(String text, int keywordIndex) {
+        int from = Math.max(0, keywordIndex - 18);
+        int to = Math.min(text.length(), keywordIndex + 18);
+        String window = text.substring(from, to);
+        return NEGATION_CUES.stream().anyMatch(window::contains);
+    }
+
     private boolean containsAny(String text, List<String> words) {
         return words.stream().anyMatch(text::contains);
     }
@@ -91,5 +127,8 @@ public class MarketSignalScorer {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private record PolarityCount(int positive, int negative) {
     }
 }

@@ -178,6 +178,7 @@ CREATE TABLE market_universe (
     tradable       bit            NOT NULL,
     source         nvarchar(50)   NOT NULL,
     last_synced_at date           NULL,
+    delisted_at    date           NULL,
     created_at     datetime2      NOT NULL,
     updated_at     datetime2      NOT NULL,
     CONSTRAINT PK_market_universe PRIMARY KEY (universe_key)

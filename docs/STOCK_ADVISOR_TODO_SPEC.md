@@ -1,6 +1,6 @@
 # Stock Advisor 작업명세서
 
-> 작성 기준: 2026-05-21 현재 구현 상태  
+> 작성 기준: 2026-05-22 현재 구현 상태
 > 목표: 현재 API/프론트 골격 이후 실제 서비스까지 가기 위한 작업 목록 정리  
 > 백엔드 포트: `8083`  
 > 프론트 포트: `5173`  
@@ -21,7 +21,7 @@
 | 가격 예측 API | 완료 | 예측 저장, 조회 |
 | 추천 API | 완료 | 추천 저장, 조회, 상태 변경 |
 | 평가 API | 완료 | 평가 저장, 조회 |
-| 백테스트 API | 완료 | 백테스트 실행 결과 저장, 조회 |
+| 백테스트 API | 부분 완료 | 백테스트 실행 결과 저장/조회, price_daily 기반 룰 시뮬레이션 실행 |
 | 알림 로그 API | 완료 | 알림 발송 결과 저장, 조회 |
 | Codex 호출 로그 API | 완료 | Codex 호출 감사 로그 저장, 조회 |
 | 데일리 브리프 API | 완료 | 브리프 저장, 조회 |
@@ -33,11 +33,12 @@
 | 통계 API | 완료 | summary, daily, by-strategy 기본 집계 |
 | 일봉 가격 API | 완료 | price_daily 저장/조회, 후보군 기반 KIS/Stooq 일봉 동기화 |
 | 장중 가격 API | 완료 | price_intraday 저장/조회, ExitMonitorJob 현재가 스냅샷 저장 |
+| 뉴스/공시/매크로/펀더멘털 API | 부분 완료 | RSS, DART/SEC, FRED, SEC Company Facts 수집/조회 API와 스케줄러 연결 |
 | Telegram 테스트 발송 | 부분 완료 | dev-placeholder 또는 실제 Telegram 전송, notification_log 저장 |
-| Codex CLI 호출 | 부분 완료 | ProcessBuilder 호출, 수집 데이터 기반 브리프 fallback, codex_call 저장 |
-| 스케줄러 골격 | 부분 완료 | KRX/US 프리오픈 Job이 후보군/일봉/추천/알림 플로우를 실행하고 ExitMonitor가 국내 현재가 스냅샷을 저장 |
-| BasicAuth/Actuator | 부분 완료 | `/api/admin/**`, `/api/ops/**`, `/actuator/**` BasicAuth 보호, 옵션으로 `/api/dev/**` 보호 가능 |
-| 운영 헬스체크 | 부분 완료 | `/api/ops/external-health`에서 KIS/Telegram/Codex/Stooq/KIND 설정 상태 조회 |
+| Codex CLI 호출 | 부분 완료 | ProcessBuilder 호출, 일 호출/예상 예산 한도 차단, 수집 데이터 기반 브리프/Exit Confirm fallback, 엄격한 ACTION 파싱, codex_call 저장 |
+| 스케줄러 골격 | 부분 완료 | KRX/US 프리오픈 Job이 후보군/일봉/추천/알림 플로우를 실행하고 ExitMonitor가 국내 현재가 스냅샷/Exit Confirm을 처리 |
+| BasicAuth/Actuator | 부분 완료 | `/api/admin/**`, `/api/ops/**`, `/actuator/**` BasicAuth 보호, `/api/dev/**` 기본 보호, BCrypt 패스워드 저장 |
+| 운영 헬스체크 | 부분 완료 | `/api/ops/external-health`에서 KIS/Telegram/Codex/Stooq/KIND 설정 상태, Codex 일 호출량/예상 예산, 수집 데이터 최신성 READY/STALE/NO_DATA 조회 |
 | Flyway 마이그레이션 | 완료 | `V1__init_schema.sql`, `ddl-auto: validate` 기준 |
 | Swagger 문서 | 완료 | `http://localhost:8083/swagger-ui.html` |
 
@@ -50,8 +51,10 @@
 | 오늘의 추천 화면 | 완료 | 상태/시장/종목 필터, 개발용 추천 생성, 추천 카드 표시 |
 | 추천 평가 화면 | 완료 | 추천 카드에서 평가 입력, 평가 이력 조회, CLOSED/EXPIRED 상태 변경 |
 | 종목 관리 화면 | 완료 | 개발용/수동 보정용 종목 등록, 조회, 검색, 수정 |
-| 시장 후보군 화면 | 완료 | 개발용 seed, 미국 심볼/가격 동기화, 후보군 필터, feature 점수 표시 |
-| 성과 통계 화면 | 완료 | 요약 카드, 기간별/일별/전략별 성과 표시 |
+| 시장 후보군 화면 | 완료 | 개발용 seed, 미국/한국 동기화, 후보군 필터, 기술/맥락/품질 feature 점수 표시 |
+| 수집 데이터 화면 | 완료 | 일봉, 뉴스, 공시, 매크로, 펀더멘털 조회/수동 동기화 |
+| 성과 통계 화면 | 완료 | 요약 카드, 누적 ROI 차트, 기간별/일별/전략별 성과 표시 |
+| 백테스트 화면 | 부분 완료 | 일봉 기반 시뮬레이션 실행, 최근 결과 요약, 실행 이력 표시 |
 | 일봉 동기화 버튼 | 완료 | 시장 후보군 화면에서 후보 수/기간 지정 후 일봉 동기화 실행 |
 | API 프록시 | 완료 | Vite `/api` → `http://localhost:8083` |
 
@@ -232,17 +235,19 @@ http://127.0.0.1:5173
 |---|---|
 | Scheduler 설정 | Spring Scheduling 활성화 완료 |
 | KRX Job | `KrxPreOpenJob` 골격 구현 완료 |
-| US Job | `UsPreOpenJob`, `UsCloseSummaryJob` 골격 구현 완료 |
+| US Job | `UsPreOpenJob`, `UsCloseSummaryJob` 골격 구현, DST/표준시 분기, 마감 요약 고도화 완료 |
 | Exit Job | `ExitMonitorJob` 골격 구현 완료 |
-| 관리자 설정 연동 | `app_setting`의 알림/폴링 설정 읽기 미구현 |
+| 관리자 설정 연동 | 추천 개수, 시장 활성화, DST 분기, 설정 기반 휴장일 차단, 프리오픈/마감 알림 시각 동적 변경, ExitMonitor 폴링 주기 반영 |
 
 ### P1-3. 개발용 추천 자동 생성 스케줄 연결
 
 | 항목 | 내용 |
 |---|---|
 | 목적 | 실제 엔진 전까지 `dev-rule-v0` 자동 추천을 스케줄로 실행한다. |
-| 상태 | 미구현 |
-| 완료 기준 | 수동 버튼 없이 KRX 시간에 추천이 생성됨 |
+| 상태 | 부분 완료 |
+| 완료 기준 | 수동 버튼 없이 KRX/US 프리오픈 시간에 추천이 생성됨 |
+
+현재 KRX/US 프리오픈 Job에서 `DevRecommendationGenerateService`를 호출하고, `recommendation.short.count`, `recommendation.long.count`, `recommendation.market.enabled`를 반영한다. KRX 프리오픈은 `notification.krx.preopen.offsetMinutes.displayTime`, US 프리오픈은 `notification.us.preopen.offsetMinutes.dstTime/standardTime`, US 마감은 `notification.us.close.offsetMinutes.dstTime/standardTime`을 매분 확인해 설정 시각에만 실행한다. ExitMonitor도 매분 확인하되 `exit.polling.intervalMinutes` 주기와 일치하는 분에만 실제 실행한다. `notification.holiday.kr.closedDates`, `notification.holiday.us.closedDates`에 등록된 날짜는 정규 작업을 건너뛰며, `notification.holiday.enabled`가 true면 휴장 알림만 보낸다. US 마감 요약은 미국 OPEN 추천의 최신 일봉 종가 기준 평균 손익, 목표 도달, 손절 근접, 예상 종료일 초과, 하위 손익 5건을 전송한다.
 
 ## P2. 실제 데이터 수집
 
@@ -266,7 +271,7 @@ http://127.0.0.1:5173
 | 미국 종목 목록 수집 | NASDAQ Trader 기반 NASDAQ/NYSE 심볼 동기화 완료 |
 | 미국 가격 수집 | Stooq 기반 최근 가격/거래대금 동기화 완료 |
 | 기본 필터 | 시장, 거래 가능, 시총/거래대금/가격 하한 필터 완료 |
-| 관리자 설정 연동 | `recommendation.marketcap.*`, `recommendation.turnover.*`, 제외 섹터/종목 설정 반영 미구현 |
+| 관리자 설정 연동 | `recommendation.marketcap.*`, `recommendation.turnover.*`, 제외 섹터/종목 설정 일부 반영 완료. 시총/거래대금 값이 수집된 후보에 하한 적용 |
 
 ### P2-1. KIS Open API 시세 수집
 
@@ -313,7 +318,10 @@ http://127.0.0.1:5173
 |---|---|
 | 목적 | 추천 근거와 브리프 생성을 위한 뉴스 데이터 수집 |
 | 소스 | Naver Finance, MarketWatch, Reuters RSS 등 |
+| 상태 | 부분 완료 |
 | 완료 기준 | 종목별 최근 뉴스 제목/링크 저장 가능 |
+
+현재 Google News / Yahoo Finance RSS 기반 수집, 저장, 조회, 스케줄러 연동이 구현되어 있다. 뉴스 감성 점수는 간단한 룰 기반이며 추천 feature 반영은 아직 제한적이다.
 
 ### P2-4. 공시/매크로 수집
 
@@ -321,7 +329,10 @@ http://127.0.0.1:5173
 |---|---|
 | 목적 | 장기 추천과 브리프에 필요한 공시/매크로 데이터 확보 |
 | 소스 | DART, SEC EDGAR, FRED |
+| 상태 | 부분 완료 |
 | 완료 기준 | 종목 공시와 주요 지표를 조회/저장 가능 |
+
+현재 DART/SEC 공시, FRED 매크로, SEC Company Facts 펀더멘털 수집/조회 API가 있다. 한국 펀더멘털, 환율, 섹터 로테이션, 추천 엔진 feature 결합은 남아 있다.
 
 ## P3. 실제 추천 엔진
 
@@ -333,7 +344,7 @@ http://127.0.0.1:5173
 | 상태 | 부분 완료 |
 | 완료 기준 | 후보군 전체에 대해 feature JSON 생성 가능 |
 
-현재 구현은 유동성, 가격 구간, 데이터 품질에 price_daily 기반 RSI/이동평균/거래량 점수를 결합하는 `feature-rule-v1` 수준이다. 뉴스, 펀더멘털, 매크로 feature는 아직 없다.
+현재 구현은 유동성, 가격 구간, 데이터 품질, price_daily 기반 RSI/이동평균/거래량에 뉴스/공시/매크로/펀더멘털 컨텍스트 점수를 결합하는 `feature-rule-v2` 수준이다. 시장 후보군 화면에서도 맥락 점수와 수집 데이터 건수를 표시한다.
 
 필요 Feature:
 
@@ -354,7 +365,7 @@ http://127.0.0.1:5173
 | 상태 | 부분 완료 |
 | 완료 기준 | 설정된 단기/장기 개수만큼 추천 생성 |
 
-현재 구현은 독립 `RecommendationEngine`에서 feature 점수순 Top-N을 생성하고 제외 섹터/종목, 최소 점수, 최소 데이터 품질 설정을 반영한다.
+현재 구현은 독립 `RecommendationEngine`에서 feature 점수순 Top-N을 생성하고 제외 섹터/종목, 최소 점수, 최소 데이터 품질, 시장별 시총/거래대금 하한 설정을 반영한다. 시총/거래대금 값이 아직 없는 후보는 데이터 품질 점수에서 불리하게 두고, 하한 필터는 값이 수집된 경우에만 적용한다.
 
 ### P3-3. PricePredictor
 
@@ -364,7 +375,7 @@ http://127.0.0.1:5173
 | 상태 | 부분 완료 |
 | 완료 기준 | 추천 생성 시 entry/target/stop/expectedExitAt 자동 산출 |
 
-현재 구현은 독립 `PricePredictor`에서 최근 일봉 변동성을 기반으로 entry/target/stop/expectedExitAt을 산출하고, 히스토리가 부족하면 fallback 배수를 사용한다.
+현재 구현은 독립 `PricePredictor`에서 최근 일봉 변동성을 기반으로 entry/target/stop/expectedExitAt을 산출한다. 일봉이 없으면 후보군 `lastPrice`를 사용하고, 일봉과 `lastPrice`가 모두 없으면 해시 기반 더미 가격을 만들지 않고 해당 후보를 추천 생성에서 제외한다.
 
 ## P4. Codex CLI 실제 연동
 
@@ -380,7 +391,7 @@ http://127.0.0.1:5173
 
 | 작업 | 설명 |
 |---|---|
-| 설정 키 | `codex.profile`, `stock-advisor.codex.command` 사용 완료. 일 호출 한도 적용 미구현 |
+| 설정 키 | `codex.profile`, `stock-advisor.codex.command`, `codex.daily.callLimit`, `codex.daily.budgetUsd`, `codex.estimatedUsdPer1kChars`, `codex.estimatedResponseChars` 사용 완료 |
 | 프로세스 실행 | `ProcessBuilder` 기반 CLI 호출 완료 |
 | timeout | 호출 제한 시간 처리 완료 |
 | 로그 저장 | promptHash, promptLen, responseLen, succeeded 저장 완료 |
@@ -394,15 +405,17 @@ http://127.0.0.1:5173
 | 상태 | 부분 완료 |
 | 완료 기준 | KRX/US 브리프 Markdown 생성 및 저장 |
 
-현재는 개발용 프롬프트 기반 `/api/dev/brief/generate`로 브리프를 저장한다. 실제 뉴스/매크로/시세 컨텍스트 결합은 미구현이다.
+현재 `/api/dev/brief/generate`는 OPEN 추천, 시장 후보군, 일봉, 뉴스, 공시, 매크로, 펀더멘털, 성과 통계 컨텍스트를 묶어 Codex에 전달한다. Codex CLI 미설정 또는 실패 시 로컬 템플릿 브리프로 fallback한다. 남은 작업은 컨텍스트 품질 고도화, 토큰/호출량 제한, 실제 운영 스케줄 메시지 포맷 정리다.
 
 ### P4-3. Exit Confirm
 
 | 항목 | 내용 |
 |---|---|
 | 목적 | 손절 위험 구간에서 Codex가 HOLD/CUT/TIGHTEN 판단을 보조한다. |
-| 상태 | 미구현 |
+| 상태 | 부분 완료 |
 | 완료 기준 | 위험 구간 진입 시 Codex 판단 결과 저장 |
+
+현재 수동 API와 ExitMonitorJob 자동 호출이 구현되어 있다. 최근 price_intraday/price_daily, 추천 signalsJson, 손절 이격률을 포함해 Codex를 호출하고, dev-placeholder 또는 실패 시 규칙 기반 fallback을 사용한다. 손절가 이하의 명확한 CUT 케이스는 Codex를 호출하지 않고 룰 기반으로 즉시 판단하며, Codex 응답은 첫 줄의 엄격한 `ACTION: HOLD|CUT|TIGHTEN` 형식만 인정한다. ExitMonitor는 목표가 도달/손절가 이탈/예상 종료일 초과 시 중복 평가가 없을 때 평가를 생성하고 추천 상태를 CLOSED 또는 EXPIRED로 자동 전환한다. 남은 작업은 RSI/MA 기반 HOLD, 위험구간 지속시간 기반 TIGHTEN, 실제 운영 메시지 포맷과 중복 알림 정책 고도화다.
 
 ## P5. 통계 대시보드
 
@@ -421,10 +434,25 @@ http://127.0.0.1:5173
 |---|---|
 | 목적 | 누적 성과와 전략별 성과를 시각화한다. |
 | 후보 라이브러리 | Recharts |
-| 상태 | 부분 완료 |
+| 상태 | 완료 |
 | 완료 기준 | ROI 곡선, Hit Rate 카드, 최근 결과 목록 표시 |
 
-현재는 Recharts 없이 표와 요약 카드로 기본 통계를 표시한다. ROI 곡선은 미구현이다.
+현재는 Recharts 없이 SVG 기반 누적 ROI 차트, 요약 카드, 일별/기간별/전략별 표를 표시한다. `/api/stats/daily`는 일별 평균 손익, 일별 총 손익, 누적 손익을 함께 반환한다.
+
+### P5-3. 일봉 기반 백테스트 실행
+
+| 항목 | 내용 |
+|---|---|
+| 목적 | 저장된 `price_daily` 데이터로 전략 성과를 즉시 계산하고 `backtest_run`에 저장한다. |
+| API | `POST /api/backtests/simulate` |
+| 상태 | 부분 완료 |
+| 완료 기준 | 시장/기간/종목수/목표/손절/보유일 조건으로 백테스트 결과 JSON 저장 |
+
+현재 `ma20-breakout-v0` 기본 룰로 20일 이동평균 이상이면 다음 거래일 종가 진입, 목표가/손절가/최대 보유일 중 먼저 발생한 조건으로 청산한다. 결과는 tradeCount, hitRate, avgPnlPct, totalPnlPct, maxDrawdownPct, 청산 사유별 건수, 샘플 트레이드로 저장된다.
+
+프론트에는 `백테스트` 탭이 추가되어 시장/기간/종목 수/보유일/목표/손절 조건으로 시뮬레이션을 실행하고 최근 결과와 실행 이력을 확인할 수 있다.
+
+2026-05-22 기준 백테스트 PnL은 `backtest.slippage.percent`, `backtest.cost.kr`, `backtest.cost.us` 설정을 읽어 시장별 effective entry/exit 가격으로 계산한다. metrics JSON에는 `entryCostPct`, `exitCostPct`, `slippagePct`, `roundTripCostPct`와 샘플별 `effectiveEntryPrice`, `effectiveExitPrice`가 포함된다. 실추천 `PricePredictor`의 target/stop도 같은 비용 모델로 보정한다.
 
 ## P6. 보안/운영
 
@@ -436,7 +464,7 @@ http://127.0.0.1:5173
 | 상태 | 부분 완료 |
 | 완료 기준 | 인증 없이는 `/api/admin/**` 접근 불가 |
 
-현재 `/api/admin/**`, `/actuator/**`는 BasicAuth로 보호된다. 나머지 API는 개발 편의를 위해 공개 상태다.
+현재 `/api/admin/**`, `/api/ops/**`, `/actuator/**`는 BasicAuth로 보호된다. `/api/dev/**`도 기본 설정에서 보호되며, 관리자 패스워드는 BCrypt로 인코딩해 메모리 사용자 저장소에 등록한다. 나머지 조회/업무 API의 운영 공개 정책은 아직 최종 확정이 필요하다.
 
 ### P6-2. CORS/프록시 정리
 
@@ -468,7 +496,7 @@ http://127.0.0.1:5173
 | 상태 | 부분 완료 |
 | 완료 기준 | 헬스체크와 기본 메트릭 조회 가능 |
 
-Actuator 의존성과 보호 설정은 있다. 외부 API별 상세 헬스체크는 미구현이다.
+Actuator 의존성과 보호 설정은 있다. `/api/ops/external-health`는 외부 연동 설정 상태, Codex 일 호출량/예상 예산, price_daily/price_intraday/news/disclosure/macro/fundamental 최신 저장 상태를 함께 반환한다. 수집 데이터는 관리자 설정의 `ops.health.*.maxAge*` 기준으로 `READY`, `STALE`, `NO_DATA`를 표시한다. 남은 작업은 실제 외부 API별 ping/check 호출과 운영 알림 연동이다.
 
 ## 5. 추천 개발 순서
 
@@ -476,47 +504,53 @@ Actuator 의존성과 보호 설정은 있다. 외부 API별 상세 헬스체크
 
 | 순서 | 작업 | 이유 |
 |---:|---|---|
-| 1 | 백엔드 테스트 복구 | 현재 테스트가 서비스 반환 타입 변경을 따라오지 못해 CI 기준이 깨져 있음 |
-| 2 | 한국 시장 유니버스 동기화 | KOSPI/KOSDAQ 후보군을 개발용 seed가 아니라 실제 목록으로 구성하기 위함 |
-| 3 | RecommendationEngine 설정 고도화 | 제외 섹터/종목과 시장별 최소 조건을 엔진에 반영하기 위함 |
-| 4 | price_intraday 활용 | 완료. ExitMonitorJob 현재가 스냅샷 저장과 조회 API 구현 |
-| 5 | 운영 보강 | 부분 완료. 보호 API 범위, 개발 API 보호 옵션, CORS origin 설정, 외부 연동 상태 API 구현 |
-| 6 | Codex 컨텍스트 고도화 | 부분 완료. DailyBrief는 실제 수집 데이터 컨텍스트를 사용하고, Exit Confirm 수동 API 구현 |
+| 1 | 로컬 검증 복구 | `gradlew.bat test`, `npm run build`를 최신 코드 기준으로 다시 확인 |
+| 2 | 스케줄러 운영 설정 연동 | 부분 완료. 추천 개수, 시장 활성화, 알림 시각, 휴장일, DST 분기를 운영 설정과 연결 |
+| 3 | 데이터 수집 품질 보강 | RSS/공시/매크로/펀더멘털 수집 결과를 추천 feature와 브리프 품질에 반영 |
+| 4 | RecommendationEngine 고도화 | 부분 완료. 뉴스/공시/펀더멘털/매크로 feature와 시장별 최소 조건을 랭킹에 반영 |
+| 5 | 통계/백테스트 실체화 | 부분 완료. 저장형 백테스트를 실제 과거 가격 시뮬레이션으로 확장하고 통계 ROI 차트 구현 |
+| 6 | 운영 보강 | 부분 완료. 보호 API 범위, 개발 API 보호 옵션, CORS origin, 외부 연동 상태, Codex 호출/예상 예산 한도 정리 |
 
 ## 6. 다음 작업 상세 명세
 
-다음 작업은 `Exit Confirm`으로 한다.
+다음 작업은 `로컬 검증 복구`로 한다.
 
 ### 6.1 목표
 
-손절 위험 구간에 진입한 OPEN 추천에 대해 최근 가격과 추천 근거를 묶어 Codex가 HOLD/CUT/TIGHTEN 판단을 보조하게 만든다.
+최신 코드 기준으로 백엔드 테스트와 프론트 빌드가 성공하는지 확인하고, 실패하면 우선 복구한다.
 
 ### 6.2 구현 파일
 
 | 파일 | 작업 |
 |---|---|
-| `apps/backend/src/main/java/com/parkdh/stockadvisor/application/recommendation/ExitConfirmService.java` | 위험 구간 추천의 판단 컨텍스트와 Codex 호출 구현 완료 |
-| `apps/backend/src/main/java/com/parkdh/stockadvisor/api/recommendation/RecommendationController.java` | `POST /api/recommendations/{id}/exit-confirm` 수동 API 추가 완료 |
-| `apps/backend/src/main/java/com/parkdh/stockadvisor/scheduler/ExitMonitorJob.java` | 손절 근접 시 Exit Confirm 자동 호출 연결 미구현 |
-| `apps/backend/src/main/java/com/parkdh/stockadvisor/infrastructure/persistence/price/PriceIntradayRepository.java` | 최근 장중 가격 조회 메서드 활용 완료 |
+| `apps/backend/src/test/java/**` | 실패 테스트가 있으면 최신 서비스 반환 타입과 정책에 맞게 수정 |
+| `apps/backend/build.gradle` | 테스트 실행 설정 확인 |
+| `apps/web/src/**` | TypeScript 빌드 오류가 있으면 수정 |
+| `apps/web/package.json` | 빌드 스크립트와 의존성 확인 |
 
 ### 6.3 구성
 
 | 영역 | 내용 |
 |---|---|
-| 입력 | OPEN 추천, 최근 price_intraday, 최근 price_daily, 추천 signalsJson |
-| 위험 판단 | 현재가가 손절가에 가까운 경우 |
-| 호출 | CodexClient 호출 및 codex_call 감사 로그 저장 |
-| 출력 | HOLD/CUT/TIGHTEN 판단과 요약 메시지 |
+| 백엔드 | `gradlew.bat test` 또는 WSL 실행 가능한 Gradle 테스트 |
+| 프론트 | `npm run build` |
+| 문서 | 검증 결과를 현재 작업명세에 반영 |
 
 ### 6.4 완료 기준
 
 | 기준 | 확인 방법 |
 |---|---|
-| 위험 구간 감지 | 손절가 대비 지정 비율 이내 추천만 Codex 판단 |
-| fallback 유지 | Codex CLI 미설정 시 규칙 기반 HOLD/CUT/TIGHTEN 생성 |
-| 감사 로그 유지 | codex_call에 성공/실패 로그가 저장됨 |
-| 기존 기능 유지 | `gradlew.bat test`, `npm run build` 성공 |
+| 백엔드 테스트 | 테스트 전체 성공 |
+| 프론트 빌드 | TypeScript + Vite 빌드 성공 |
+| 실패 시 조치 | 실패 원인과 수정 파일을 기록 |
+| 다음 단계 | 스케줄러 운영 설정 연동으로 이동 |
+
+### 6.5 2026-05-22 검증 결과
+
+| 항목 | 결과 | 비고 |
+|---|---|---|
+| 백엔드 테스트 | 성공 | Windows PowerShell에서 OpenJDK 17 기준 `apps/backend`의 `.\gradlew.bat test --console=plain` 성공. Gradle 8.14 wrapper 배포판 다운로드 후 전체 테스트 통과 |
+| 프론트 빌드 | 성공 | PowerShell 실행 정책 때문에 `npm` 대신 `npm.cmd run build`로 실행. TypeScript + Vite 빌드 성공 |
 
 ## 7. 작업 완료 체크리스트
 
@@ -542,7 +576,8 @@ Actuator 의존성과 보호 설정은 있다. 외부 API별 상세 헬스체크
 | 시장 유니버스 자동 구성 | 부분 구현됨. 개발용 seed, 한국/미국 심볼 동기화, 미국 가격 동기화, 후보군 화면 구현됨 |
 | 실제 알림 | 부분 구현됨. Telegram 테스트 발송과 스케줄러 메시지 전송 구현됨 |
 | 실제 데이터 수집 | 부분 구현됨. KIS 현재가/일봉, Stooq 최근 quote/일봉, price_daily 저장, ExitMonitor price_intraday 저장 구현됨 |
-| 실제 추천 엔진 | 부분 구현됨. RecommendationEngine/PricePredictor 분리, 제외 섹터/종목/최소 점수/품질 설정 반영 |
-| 스케줄러 | 부분 구현됨. KRX/US 프리오픈은 수집/추천/알림 연결됨. 설정 기반 동적 스케줄과 US_CLOSE 고도화는 미구현 |
-| 통계 화면 | 구현됨. ROI 차트는 미구현 |
-| 보안 | 부분 구현됨. 관리자/운영/Actuator BasicAuth 적용, 개발 API 보호 옵션과 CORS origin 설정 추가, 전체 운영 공개 정책은 미정 |
+| 실제 추천 엔진 | 부분 구현됨. RecommendationEngine/PricePredictor 분리, 제외 섹터/종목/최소 점수/품질/시장별 시총·거래대금 하한, 시장 레짐 필터, 섹터 분산, 포지션 비중 산정 반영 |
+| 백테스트 실행 | 부분 구현됨. 결과 저장/조회와 price_daily 기반 `ma20-breakout-v0` 시뮬레이션 API 구현, 설정 기반 거래비용/슬리피지 반영 |
+| 스케줄러 | 부분 구현됨. KRX/US 프리오픈은 수집/추천/알림 연결됨. 추천 개수/시장 활성화/DST/알림 시각/설정 기반 휴장일 차단, US_CLOSE 요약 고도화, ExitMonitor 폴링 주기 반영 완료 |
+| 통계 화면 | 구현됨. 누적 ROI 차트, 요약 카드, 일별/기간별/전략별 표 표시 |
+| 보안 | 부분 구현됨. 관리자/운영/Actuator BasicAuth 적용, 개발 API 기본 보호, BCrypt 패스워드 저장, CORS origin 설정 추가, Codex 일 호출/예상 예산 한도 차단, 운영 헬스체크 수집 데이터 READY/STALE/NO_DATA 표시 구현, 전체 운영 공개 정책은 미정 |

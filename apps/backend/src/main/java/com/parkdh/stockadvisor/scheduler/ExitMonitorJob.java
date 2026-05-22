@@ -7,10 +7,13 @@ import com.parkdh.stockadvisor.application.marketdata.MarketDataSyncService;
 import com.parkdh.stockadvisor.application.notification.NotificationLogService;
 import com.parkdh.stockadvisor.application.notification.NotificationLogService.NotificationDispatchResult;
 import com.parkdh.stockadvisor.application.recommendation.ExitConfirmService;
+import com.parkdh.stockadvisor.domain.evaluation.EvaluationEntity;
 import com.parkdh.stockadvisor.domain.recommendation.ExitConfirmLogEntity;
 import com.parkdh.stockadvisor.domain.recommendation.RecommendationEntity;
 import com.parkdh.stockadvisor.infrastructure.marketdata.kr.KisApiClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.kr.KisApiClient.KisCurrentPrice;
+import com.parkdh.stockadvisor.infrastructure.persistence.evaluation.EvaluationRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.price.PriceIntradayRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.ExitConfirmLogRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.RecommendationRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
@@ -25,6 +28,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
@@ -34,18 +38,25 @@ import java.util.Optional;
 @Component
 public class ExitMonitorJob {
     private static final DateTimeFormatter DATE_KEY_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
+    private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
 
     private final RecommendationRepository recommendationRepository;
+    private final EvaluationRepository evaluationRepository;
     private final ExitConfirmLogRepository exitConfirmLogRepository;
     private final KisApiClient kisApiClient;
     private final MarketDataSyncService marketDataSyncService;
     private final ExitConfirmService exitConfirmService;
     private final NotificationLogService notificationLogService;
     private final AppSettingRepository appSettingRepository;
+    private final PriceIntradayRepository priceIntradayRepository;
     private final ObjectMapper objectMapper;
 
-    @Scheduled(cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void run() {
+        int pollingIntervalMinutes = getIntSetting("exit.polling.intervalMinutes", 5);
+        if (!shouldRunAtConfiguredInterval(pollingIntervalMinutes)) {
+            return;
+        }
         log.info("ExitMonitorJob 시작");
         try {
             if (!getBooleanSetting("exit.intraday.enabled", true)) {
@@ -71,6 +82,16 @@ public class ExitMonitorJob {
         }
     }
 
+    private boolean shouldRunAtConfiguredInterval(int pollingIntervalMinutes) {
+        if (pollingIntervalMinutes <= 0) {
+            log.debug("ExitMonitorJob 폴링 주기가 0 이하입니다. interval={}", pollingIntervalMinutes);
+            return false;
+        }
+        LocalTime now = LocalTime.now(SEOUL_ZONE);
+        int minuteOfDay = now.getHour() * 60 + now.getMinute();
+        return minuteOfDay % pollingIntervalMinutes == 0;
+    }
+
     private MonitorResult checkExitCondition(RecommendationEntity recommendation, int confirmCount, int confirmLimitPerRun) {
         String ticker = recommendation.getTicker();
         String market = recommendation.getMarket();
@@ -91,15 +112,25 @@ public class ExitMonitorJob {
 
         BigDecimal targetPrice = recommendation.getTargetPrice();
         BigDecimal stopPrice = recommendation.getStopPrice();
-        if (targetPrice.compareTo(currentPrice) <= 0) {
+        boolean targetReached = targetPrice.compareTo(currentPrice) <= 0;
+        boolean stopBreached = stopPrice.compareTo(currentPrice) >= 0;
+        if (targetReached) {
             String message = "🎯 목표가 도달: " + ticker + "\n현재가=" + currentPrice + ", 목표가=" + targetPrice;
-            notificationLogService.sendTelegramOnce(buildDailyEventKey(recommendation, "TARGET"), message);
+            notificationLogService.sendTelegramOnce(buildDailyEventKey(recommendation, "TARGET", currentPrice), message);
             log.info("목표가 도달 알림 처리. ticker={}, 현재가={}, 목표가={}", ticker, currentPrice, targetPrice);
         }
-        if (stopPrice.compareTo(currentPrice) >= 0) {
+        if (stopBreached) {
             String message = "🛑 손절가 이탈: " + ticker + "\n현재가=" + currentPrice + ", 손절가=" + stopPrice;
-            notificationLogService.sendTelegramOnce(buildDailyEventKey(recommendation, "STOP"), message);
+            notificationLogService.sendTelegramOnce(buildDailyEventKey(recommendation, "STOP", currentPrice), message);
             log.info("손절가 이탈 알림 처리. ticker={}, 현재가={}, 손절가={}", ticker, currentPrice, stopPrice);
+        }
+        if (targetReached || stopBreached) {
+            closeRecommendationWithEvaluation(recommendation, currentPrice, targetReached ? "TARGET_HIT" : "STOP_HIT", targetReached, "CLOSED");
+            return MonitorResult.checked();
+        }
+        if (LocalDate.now(SEOUL_ZONE).isAfter(recommendation.getExpectedExitAt())) {
+            closeRecommendationWithEvaluation(recommendation, currentPrice, "TIME_OUT", false, "EXPIRED");
+            return MonitorResult.checked();
         }
 
         if (!isExitConfirmRiskZone(currentPrice, stopPrice)) {
@@ -128,6 +159,61 @@ public class ExitMonitorJob {
         log.info("Exit Confirm 자동 수행. recommendationId={}, ticker={}, action={}, notified={}",
                 response.recommendationId(), response.ticker(), response.action(), notificationResult.sent());
         return MonitorResult.confirmedResult();
+    }
+
+    private void closeRecommendationWithEvaluation(RecommendationEntity recommendation, BigDecimal exitPrice, String exitReason, boolean hitTarget, String status) {
+        if (evaluationRepository.existsByRecommendationId(recommendation.getId())) {
+            recommendation.updateStatus(status);
+            recommendationRepository.save(recommendation);
+            log.debug("기존 평가가 있어 추천 상태만 갱신했습니다. recommendationId={}, status={}", recommendation.getId(), status);
+            return;
+        }
+        BigDecimal pnlPct = exitPrice.subtract(recommendation.getEntryPrice())
+                .divide(recommendation.getEntryPrice(), 6, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100));
+        BigDecimal drawdownPct = calculateDrawdownPct(recommendation, exitPrice);
+        evaluationRepository.save(new EvaluationEntity(
+                recommendation.getId(),
+                exitPrice,
+                exitReason,
+                pnlPct,
+                drawdownPct,
+                hitTarget,
+                LocalDateTime.now(SEOUL_ZONE)
+        ));
+        recommendation.updateStatus(status);
+        recommendationRepository.save(recommendation);
+        log.info("추천 자동 전환 및 평가 생성. recommendationId={}, ticker={}, status={}, exitReason={}, pnlPct={}",
+                recommendation.getId(), recommendation.getTicker(), status, exitReason, pnlPct);
+    }
+
+    private BigDecimal calculateDrawdownPct(RecommendationEntity recommendation, BigDecimal exitPrice) {
+        BigDecimal entryPrice = recommendation.getEntryPrice();
+        if (entryPrice == null || entryPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
+        }
+        LocalDateTime from = recommendation.getGeneratedAt() == null ? LocalDateTime.now(SEOUL_ZONE).minusDays(1) : recommendation.getGeneratedAt();
+        LocalDateTime to = LocalDateTime.now(SEOUL_ZONE);
+        BigDecimal minPrice = priceIntradayRepository.findByMarketAndTickerAndTickAtBetweenOrderByTickAtAsc(
+                        recommendation.getMarket(),
+                        recommendation.getTicker(),
+                        from,
+                        to
+                ).stream()
+                .map(row -> row.getPrice())
+                .filter(price -> price != null)
+                .min(BigDecimal::compareTo)
+                .orElse(exitPrice);
+        if (exitPrice != null && exitPrice.compareTo(minPrice) < 0) {
+            minPrice = exitPrice;
+        }
+        if (minPrice.compareTo(entryPrice) > 0) {
+            minPrice = entryPrice;
+        }
+        return minPrice.subtract(entryPrice)
+                .divide(entryPrice, 6, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(4, RoundingMode.HALF_UP);
     }
 
     private boolean canAutoConfirm(RecommendationEntity recommendation, int confirmCount, int confirmLimitPerRun) {
@@ -194,8 +280,15 @@ public class ExitMonitorJob {
         return currentPrice.compareTo(threshold) <= 0;
     }
 
-    private String buildDailyEventKey(RecommendationEntity recommendation, String eventType) {
-        return "exit-monitor:%s:%s:%s".formatted(recommendation.getId(), eventType, LocalDate.now().format(DATE_KEY_FORMATTER));
+    private String buildDailyEventKey(RecommendationEntity recommendation, String eventType, BigDecimal currentPrice) {
+        return "exit-monitor:%s:%s:%s".formatted(recommendation.getId(), eventType, priceBucket(recommendation.getEntryPrice(), currentPrice));
+    }
+
+    private String priceBucket(BigDecimal basePrice, BigDecimal currentPrice) {
+        if (basePrice == null || currentPrice == null || basePrice.compareTo(BigDecimal.ZERO) <= 0) {
+            return "unknown";
+        }
+        return currentPrice.divide(basePrice, 2, RoundingMode.HALF_UP).toPlainString();
     }
 
     private String buildExitConfirmEventKey(ExitConfirmResponse response) {

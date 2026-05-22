@@ -1,5 +1,6 @@
 package com.parkdh.stockadvisor.api.autoresearch; // AutoResearch API 패키지를 선언한다.
 
+import com.parkdh.stockadvisor.api.autoresearch.dto.AutoresearchAutoRunRequest; // AutoResearch 자동 실행 요청 DTO를 가져온다.
 import com.parkdh.stockadvisor.api.autoresearch.dto.AutoresearchRunCreateRequest; // AutoResearch 실행 생성 요청 DTO를 가져온다.
 import com.parkdh.stockadvisor.api.autoresearch.dto.StrategyVersionCreateRequest; // 전략 버전 생성 요청 DTO를 가져온다.
 import com.parkdh.stockadvisor.application.autoresearch.AutoresearchService; // AutoResearch 서비스를 가져온다.
@@ -88,6 +89,14 @@ public class AutoresearchController { // AutoResearch 컨트롤러를 정의한�
     public ResultDto<?> createRun(@Valid @RequestBody AutoresearchRunCreateRequest request) { // AutoResearch 실행 저장 API를 정의한다.
         return ResultDto.success(autoresearchService.createRun(request)); // 서비스 생성 결과를 성공 응답으로 래핑해 반환한다.
     } // AutoResearch 실행 저장 API를 종료한다.
+
+    @Operation(summary = "AutoResearch 자동 실행", description = """
+            scoring weights 후보를 자동 생성해 추천 엔진 백테스트를 수행하고, 기존 champion보다 성과가 좋으면 새 champion 전략 버전을 저장한다.
+            """)
+    @PostMapping("/runs/auto")
+    public ResultDto<?> runAutoResearch(@RequestBody(required = false) AutoresearchAutoRunRequest request) {
+        return ResultDto.success(autoresearchService.runAutoResearch(request));
+    }
 
     @Operation(summary = "전략 버전 목록 조회", description = """
             AutoResearch가 승격한 전략 버전 목록을 조회한다.

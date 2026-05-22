@@ -3,7 +3,13 @@ import {
   fetchStatsByStrategy,
   fetchStatsDaily,
   fetchStatsSummary,
+  type StatsDailyResponse,
 } from "../api/stats";
+
+function numberValue(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 function pnlColor(value: number) {
   if (value > 0) return { color: "#16a34a" };
@@ -13,6 +19,75 @@ function pnlColor(value: number) {
 
 function pnlText(value: number) {
   return (value > 0 ? "+" : "") + Number(value).toFixed(2) + "%";
+}
+
+function RoiChart({ daily }: { daily?: StatsDailyResponse[] }) {
+  const source = [...(daily ?? [])].sort((a, b) => a.date.localeCompare(b.date));
+
+  if (source.length === 0) {
+    return <div className="roi-chart-empty">평가 데이터 없음</div>;
+  }
+
+  const width = 640;
+  const height = 220;
+  const padX = 44;
+  const padTop = 18;
+  const padBottom = 36;
+  const values = source.map((d) =>
+    numberValue(d.cumulativePnlPct, numberValue(d.avgPnlPct)),
+  );
+  const minValue = Math.min(0, ...values);
+  const maxValue = Math.max(0, ...values);
+  const range = maxValue - minValue || 1;
+  const plotHeight = height - padTop - padBottom;
+  const plotWidth = width - padX * 2;
+  const points = source.map((d, index) => {
+    const value = numberValue(d.cumulativePnlPct, numberValue(d.avgPnlPct));
+    const x =
+      source.length === 1 ? width / 2 : padX + (plotWidth * index) / (source.length - 1);
+    const y = padTop + ((maxValue - value) / range) * plotHeight;
+    return { date: d.date, value, x, y };
+  });
+  const linePoints = points.map((p) => `${p.x},${p.y}`).join(" ");
+  const zeroY = padTop + ((maxValue - 0) / range) * plotHeight;
+  const first = source[0];
+  const last = source[source.length - 1];
+
+  return (
+    <div className="roi-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="누적 ROI 차트">
+        <line className="roi-axis" x1={padX} y1={zeroY} x2={width - padX} y2={zeroY} />
+        <line className="roi-grid" x1={padX} y1={padTop} x2={width - padX} y2={padTop} />
+        <line
+          className="roi-grid"
+          x1={padX}
+          y1={height - padBottom}
+          x2={width - padX}
+          y2={height - padBottom}
+        />
+        <text className="roi-label" x={8} y={padTop + 4}>
+          {pnlText(maxValue)}
+        </text>
+        <text className="roi-label" x={8} y={height - padBottom + 4}>
+          {pnlText(minValue)}
+        </text>
+        <polyline className="roi-line" points={linePoints} />
+        {points.map((p) => (
+          <circle key={p.date} className="roi-point" cx={p.x} cy={p.y} r="3">
+            <title>
+              {p.date} {pnlText(p.value)}
+            </title>
+          </circle>
+        ))}
+        <text className="roi-date" x={padX} y={height - 10}>
+          {first.date}
+        </text>
+        <text className="roi-date" x={width - padX} y={height - 10} textAnchor="end">
+          {last.date}
+        </text>
+      </svg>
+    </div>
+  );
 }
 
 export function StatsPage() {
@@ -144,6 +219,11 @@ export function StatsPage() {
       )}
 
       <section className="stats-section">
+        <h3>누적 ROI (최근 30일)</h3>
+        {dailyLoading ? <p>로딩 중...</p> : <RoiChart daily={daily} />}
+      </section>
+
+      <section className="stats-section">
         <h3>일별 이력 (최근 30일)</h3>
         {dailyLoading ? (
           <p>로딩 중...</p>
@@ -155,6 +235,8 @@ export function StatsPage() {
                 <th>평가 건수</th>
                 <th>적중</th>
                 <th>평균 손익</th>
+                <th>일별 손익</th>
+                <th>누적 손익</th>
               </tr>
             </thead>
             <tbody>
@@ -167,11 +249,17 @@ export function StatsPage() {
                     <td style={pnlColor(Number(d.avgPnlPct))}>
                       {pnlText(Number(d.avgPnlPct))}
                     </td>
+                    <td style={pnlColor(numberValue(d.totalPnlPct))}>
+                      {pnlText(numberValue(d.totalPnlPct, numberValue(d.avgPnlPct)))}
+                    </td>
+                    <td style={pnlColor(numberValue(d.cumulativePnlPct))}>
+                      {pnlText(numberValue(d.cumulativePnlPct, numberValue(d.avgPnlPct)))}
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4} style={{ textAlign: "center", color: "#888" }}>
+                  <td colSpan={6} style={{ textAlign: "center", color: "#888" }}>
                     평가 데이터 없음
                   </td>
                 </tr>

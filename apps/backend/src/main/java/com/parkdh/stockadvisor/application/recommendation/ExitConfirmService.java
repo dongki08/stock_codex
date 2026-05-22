@@ -24,11 +24,14 @@ import java.math.RoundingMode; // 반올림 모드를 가져온다.
 import java.time.LocalDateTime; // 날짜 시간 타입을 가져온다.
 import java.util.List; // 목록 타입을 가져온다.
 import java.util.Optional; // 선택 값 타입을 가져온다.
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @RequiredArgsConstructor // private final 필드의 생성자를 자동 생성한다.
 @Service // 스프링 서비스 빈으로 등록한다.
 public class ExitConfirmService { // Exit Confirm 서비스를 정의한다.
     private static final String DEFAULT_PROFILE = "stock-advisor"; // 기본 Codex profile을 정의한다.
+    private static final Pattern ACTION_LINE_PATTERN = Pattern.compile("^ACTION:\\s*(HOLD|CUT|TIGHTEN)$"); // Codex 첫 줄 액션 형식을 정의한다.
 
     private final RecommendationRepository recommendationRepository; // 추천 저장소 의존성을 보관한다.
     private final PriceIntradayRepository priceIntradayRepository; // 장중 가격 저장소 의존성을 보관한다.
@@ -51,6 +54,11 @@ public class ExitConfirmService { // Exit Confirm 서비스를 정의한다.
         if (!riskZone) { // 위험 구간이 아닌지 확인한다.
             return new ExitConfirmResponse(recommendation.getId(), recommendation.getTicker(), recommendation.getMarket(), current.price(), recommendation.getStopPrice(), distancePct, "HOLD", "현재가가 손절 위험 구간 밖입니다.", true, null, LocalDateTime.now()); // HOLD 응답을 반환한다.
         } // 위험 구간 확인을 종료한다.
+        Optional<RuleDecision> ruleDecision = decideByRule(recommendation, current, distancePct); // 명확한 룰 판단이 가능한지 확인한다.
+        if (ruleDecision.isPresent()) { // 룰 판단 결과가 있는지 확인한다.
+            RuleDecision decision = ruleDecision.get(); // 룰 판단 결과를 가져온다.
+            return new ExitConfirmResponse(recommendation.getId(), recommendation.getTicker(), recommendation.getMarket(), current.price(), recommendation.getStopPrice(), distancePct, decision.action(), decision.rationale(), false, null, LocalDateTime.now()); // Codex 호출 없이 룰 판단을 반환한다.
+        } // 룰 판단 확인을 종료한다.
         String prompt = buildPrompt(recommendation, current, distancePct, riskBandPercent); // Codex 판단 프롬프트를 구성한다.
         CodexResult result = codexClient.call(prompt, resolveProfile(), "exit-confirm"); // Codex CLI를 호출한다.
         boolean usedFallback = MarketUtil.isDevPlaceholder(codexCliProperties.command()) || !result.succeeded(); // fallback 사용 여부를 정한다.
@@ -138,14 +146,19 @@ public class ExitConfirmService { // Exit Confirm 서비스를 정의한다.
         return "현재가가 손절 위험 구간 안에 있습니다. 규칙 기반 fallback은 손절선을 더 촘촘히 관리하는 TIGHTEN을 제안합니다. distancePct=" + distancePct; // 타이트닝 근거를 반환한다.
     } // 규칙 기반 fallback 근거 생성을 종료한다.
 
+    private Optional<RuleDecision> decideByRule(RecommendationEntity recommendation, PricePoint current, BigDecimal distancePct) {
+        if (current.price().compareTo(recommendation.getStopPrice()) <= 0) {
+            return Optional.of(new RuleDecision("CUT", "현재가가 손절가 이하입니다. 룰 기반으로 즉시 CUT을 제안합니다. distancePct=" + distancePct));
+        }
+        return Optional.empty();
+    }
+
     private String parseAction(String response) { // Codex 응답에서 액션을 추출한다.
-        String upper = response == null ? "" : response.toUpperCase(); // 대문자 응답을 만든다.
-        if (upper.contains("ACTION: CUT")) { // CUT 액션이 있는지 확인한다.
-            return "CUT"; // CUT을 반환한다.
-        } // CUT 액션 확인을 종료한다.
-        if (upper.contains("ACTION: TIGHTEN")) { // TIGHTEN 액션이 있는지 확인한다.
-            return "TIGHTEN"; // TIGHTEN을 반환한다.
-        } // TIGHTEN 액션 확인을 종료한다.
+        String firstLine = response == null ? "" : response.lines().findFirst().orElse("").trim().toUpperCase(); // 첫 줄만 액션 후보로 사용한다.
+        Matcher matcher = ACTION_LINE_PATTERN.matcher(firstLine); // 엄격한 ACTION 형식을 검사한다.
+        if (matcher.matches()) { // 형식이 일치하는지 확인한다.
+            return matcher.group(1); // 액션 값을 반환한다.
+        } // 액션 형식 확인을 종료한다.
         return "HOLD"; // 기본 액션은 HOLD로 반환한다.
     } // Codex 응답 액션 추출을 종료한다.
 
@@ -182,4 +195,7 @@ public class ExitConfirmService { // Exit Confirm 서비스를 정의한다.
 
     private record PricePoint(BigDecimal price, LocalDateTime priceAt, String source) { // 판단 기준 가격 포인트를 정의한다.
     } // 판단 기준 가격 포인트를 종료한다.
+
+    private record RuleDecision(String action, String rationale) {
+    }
 } // Exit Confirm 서비스를 종료한다.

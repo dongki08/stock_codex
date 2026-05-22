@@ -53,4 +53,8 @@ public class StrategyVersionEntity extends CreatedEntity { // 전략 버전 엔�
         this.promotedAt = promotedAt; // 승격 일시를 저장한다.
         this.champion = champion; // 챔피언 여부를 저장한다.
     } // 생성자를 종료한다.
+
+    public void updateChampion(Boolean champion) { // 챔피언 여부를 갱신한다.
+        this.champion = champion; // 새 챔피언 여부를 저장한다.
+    } // 챔피언 여부 갱신을 종료한다.
 } // 전략 버전 엔티티를 종료한다.

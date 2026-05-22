@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -68,21 +70,36 @@ public class StatsService {
 
     public List<StatsDailyResponse> getDaily() {
         List<EvaluationEntity> evals = evaluationRepository.findAll();
-        return evals.stream()
+        List<DailyStatsBucket> buckets = evals.stream()
                 .collect(Collectors.groupingBy(e -> e.getEvaluatedAt().toLocalDate()))
                 .entrySet().stream()
-                .sorted(Map.Entry.<LocalDate, List<EvaluationEntity>>comparingByKey().reversed())
-                .limit(30)
+                .sorted(Map.Entry.<LocalDate, List<EvaluationEntity>>comparingByKey())
                 .map(entry -> {
                     List<EvaluationEntity> dayEvals = entry.getValue();
                     int count = dayEvals.size();
                     int hits = (int) dayEvals.stream().filter(e -> Boolean.TRUE.equals(e.getHitTarget())).count();
-                    BigDecimal avg = dayEvals.stream().map(EvaluationEntity::getPnlPct)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add)
-                            .divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
-                    return new StatsDailyResponse(entry.getKey().toString(), count, hits, avg);
+                    BigDecimal total = dayEvals.stream().map(EvaluationEntity::getPnlPct)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal avg = total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
+                    return new DailyStatsBucket(entry.getKey().toString(), count, hits, avg, total);
                 })
                 .toList();
+
+        BigDecimal cumulative = BigDecimal.ZERO;
+        List<StatsDailyResponse> responses = new ArrayList<>();
+        for (DailyStatsBucket bucket : buckets) {
+            cumulative = cumulative.add(bucket.totalPnlPct());
+            responses.add(new StatsDailyResponse(
+                    bucket.date(),
+                    bucket.count(),
+                    bucket.hitCount(),
+                    bucket.avgPnlPct(),
+                    bucket.totalPnlPct(),
+                    cumulative
+            ));
+        }
+        Collections.reverse(responses);
+        return responses.stream().limit(30).toList();
     }
 
     public List<StatsStrategyResponse> getByStrategy() {
@@ -118,4 +135,6 @@ public class StatsService {
                 .divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
         return new TermStats(count, hitRate, avg);
     }
+
+    private record DailyStatsBucket(String date, int count, int hitCount, BigDecimal avgPnlPct, BigDecimal totalPnlPct) {}
 }
