@@ -1,6 +1,69 @@
 # Stock Advisor 작업명세서
 
-> 작성 기준: 2026-05-22 현재 구현 상태
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 11(로드맵) · 상태 🟢 현행(§0=2026-05-29 델타, §1↓=05-22 스냅샷)
+>
+> 작성 기준: 2026-05-22 (아래 §0 = 2026-05-29 재검토 델타)
+
+## 📍 단계별 진행 맵 (어디까지 왔나 — 한눈에)
+
+> 마일스톤 순서. 주차는 네 속도로 배치(예: M7을 1~3주차로). 상태: ✅완료 · 🔶부분 · ⚠️됐지만 결함 · ⛔미착수
+> **현재 위치: 토대(M0~M6) 대부분 완성. M4가 결함, M7(수익 두뇌)이 다음 핵심.**
+>
+> 🔴 **즉시 수정 빌드 리스크**: `ExitConfirmServiceTest`가 삭제된 `ExitConfirmService`를 참조 → `gradlew test` 컴파일 실패. 해당 테스트 삭제/이관 먼저.
+
+| 단계 | 내용 | 상태 | 근거/핵심 | 남은 일 |
+|---|---|:--:|---|---|
+| **M0** | 스켈레톤·API 계약 | ✅ | MSSQL·Swagger·`ResultDto`·Security | — |
+| **M1** | 시장데이터 인프라 | ✅ | price/news/disclosure/macro/fundamental 수집 + 클라이언트 7종(KIS/Stooq/DART/SEC/FRED/RSS) | 펀더멘털 분기누적·정규화 후속 |
+| **M2** | 추천 엔진(룰) | ⚠️ | `RecommendationEngine`·`UniverseFeatureBuilder`·`PricePredictor`·섹터캡 | 점수가 알파 약함 → M7에서 강화 |
+| **M3** | 평가·Exit 자동화 | ✅ | `ExitMonitorJob` 룰 자동청산 + `evaluation`·confidence | — |
+| **M4** | 자기개선 루프 | ⚠️ | `AutoresearchService`·`BacktestRunService` 본체 완성 | **백테스트 미래참조로 사실상 무효** → M7 TASK-1·2로 재작업 |
+| **M5** | 알림·브리프·스케줄러 | 🔶 | `NotificationService` 4개 스케줄러+ExitMonitor 배선, Telegram·Codex 브리프, `ExternalApiPingClient` 헬스 | 실키 발송 검증, dev-placeholder→실연동 |
+| **M6** | 프론트 운영화면 | ✅ | 추천/후보군/종목/통계/설정/수집/백테스트 화면 | 잔여 폴리시 |
+| **M7** | 💰 수익 두뇌 강화 | ⛔ | — | **지금 핵심.** [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md) TASK-1~8 |
+| **M8** | 실운영·검증 | ⛔ | — | 실키 검증·페이퍼트레이딩·성과 모니터링 |
+
+### 지금 당장 할 일 (순서)
+
+1. **M7 TASK-1·2** — 백테스트 score 진입화 + Point-in-time 스냅샷. (M4 무효 문제의 토대 해결)
+2. **M7 TASK-8·3·4** — regime 필터 on / 펀더멘털·매크로 방향성화 / 뉴스 감성 주축. (병렬, 즉시 알파)
+3. **M7 TASK-5·6·7** — cross-sectional 표준화 / IC 측정 / 포지션 사이징.
+4. **M5·M8** — 실키 검증 → 페이퍼 트레이딩으로 실제 수익률 추적.
+
+> 상세 작업카드(대상 파일·변경·검증)는 [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md). 진행하며 완료 단계 상태(⛔→🔶→✅) 갱신.
+
+---
+
+## 0. 2026-05-29 갱신 델타 (이후 변경분)
+
+> §1 이하 본문은 2026-05-22 스냅샷. 그 뒤 코드 변경 핵심만 여기 정리. 충돌 시 이 절·코드가 우선.
+
+- **마이그레이션 V7·V8 추가** — V7 `market_universe.delisted_at`, V8 `exit_confirm_log` 테이블 제거.
+- **ExitConfirm 기능 제거** — `ExitConfirmService`/`ExitConfirmLogEntity`/`ExitConfirmLogRepository`/DTO 삭제. Exit 판정은 `ExitMonitorJob`의 룰 기반(목표가/손절가/만료)으로 일원화.
+- **AutoResearch 루프 본체 완성** — 가중치 mutation→백테스트→챔피언 승격/롤백(`AutoresearchService`). ⚠️ 백테스트 미래참조 한계 있음 → [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md) TASK-1·2.
+- **비용 반영 PnL** — 거래세/수수료/슬리피지/환전 스프레드 반영(`PricePredictor`, `BacktestRunService`).
+- **섹터 분산** — `recommendation.sector.max`(기본 2) 종목당 캡.
+- **BCrypt** — admin 비밀번호 해시 저장.
+- **신규 클라이언트(미커밋, 배선 완료)** — `DartFundamentalClient`(KR 재무 YoY)·`SentimentAnalysisClient`(외부 감성)는 `MarketDataCollectionService`에 연결. `NotificationService`는 4개 스케줄러+ExitMonitor에 배선. `ExternalApiPingClient`(ops) 추가. 각각 테스트 보유.
+- **컨트롤러 19종** 운영 중(§ [30-BACKEND-OVERVIEW](30-BACKEND-OVERVIEW.md) 참조).
+- **테스트 24종** (`RecommendationEngineTest`·`UniverseFeatureBuilderTest`·`BacktestRunServiceTest`·`PricePredictorTest` 등).
+- 🔴 **빌드 리스크(즉시)**: `ExitConfirmServiceTest`가 삭제된 `ExitConfirmService`를 참조 → 컴파일 실패. 테스트 삭제/이관 필요.
+- **남은 핵심 과제**: 수익률 두뇌 강화 → [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md). 결함 이력 → [41-DEFECTS-AND-FIXES](41-DEFECTS-AND-FIXES.md).
+
+### 2026-05-29 코드 감사 결과 (실측)
+
+| 구분 | 실측 | 비고 |
+|---|---|---|
+| 컨트롤러 | 19 | — |
+| application 서비스 | 18 | NotificationService·NotificationLogService 포함 |
+| infra 클라이언트 | 13 | Dart·Sentiment·ExternalApiPing 신규 |
+| 스케줄러 | 6 + SettingReader | KRX/US 프리오픈·US마감·수집·AutoResearch·ExitMonitor |
+| Flyway | V1~V8 | exit_confirm_log 제거됨(V8) |
+| 테스트 | 24 | ⚠️ ExitConfirmServiceTest 오펀 |
+| 프론트 화면 | 7 | Admin/Backtests/Instruments/MarketData/Recommendations/Stats/Universe |
+
+---
+
 > 목표: 현재 API/프론트 골격 이후 실제 서비스까지 가기 위한 작업 목록 정리  
 > 백엔드 포트: `8083`  
 > 프론트 포트: `5173`  
@@ -39,7 +102,7 @@
 | 스케줄러 골격 | 부분 완료 | KRX/US 프리오픈 Job이 후보군/일봉/추천/알림 플로우를 실행하고 ExitMonitor가 국내 현재가 스냅샷/Exit Confirm을 처리 |
 | BasicAuth/Actuator | 부분 완료 | `/api/admin/**`, `/api/ops/**`, `/actuator/**` BasicAuth 보호, `/api/dev/**` 기본 보호, BCrypt 패스워드 저장 |
 | 운영 헬스체크 | 부분 완료 | `/api/ops/external-health`에서 KIS/Telegram/Codex/Stooq/KIND 설정 상태, Codex 일 호출량/예상 예산, 수집 데이터 최신성 READY/STALE/NO_DATA 조회 |
-| Flyway 마이그레이션 | 완료 | `V1__init_schema.sql`, `ddl-auto: validate` 기준 |
+| Flyway 마이그레이션 | 완료 | `V1`~`V8` 적용 (V8: `exit_confirm_log` 제거), `ddl-auto: validate` 기준 |
 | Swagger 문서 | 완료 | `http://localhost:8083/swagger-ui.html` |
 
 ### 1.2 프론트 구현 완료
@@ -62,10 +125,10 @@
 
 | 문서 | 설명 |
 |---|---|
-| `docs/STOCK_ADVISOR_API.md` | 상세 API 명세 |
-| `docs/STOCK_ADVISOR_API_QUICK.md` | 한눈에 보는 API 요약 |
-| `docs/STOCK_ADVISOR_FLOW.md` | 전체 흐름도 |
-| `docs/STOCK_ADVISOR_TODO_SPEC.md` | 현재 문서 |
+| `docs/20-API.md` | 상세 API 명세 |
+| `docs/21-API-QUICK.md` | 한눈에 보는 API 요약 |
+| `docs/32-SYSTEM-FLOW.md` | 전체 흐름도 |
+| `docs/11-ROADMAP.md` | 현재 문서 |
 
 ## 2. 사용자가 직접 준비할 것
 

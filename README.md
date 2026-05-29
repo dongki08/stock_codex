@@ -2,6 +2,8 @@
 
 Daily Stock Advisor is a personal stock recommendation system.
 
+> 📚 **문서 시작점**: [docs/00-INDEX.md](docs/00-INDEX.md) — 목적별로 어떤 문서를 볼지 안내.
+
 ## First milestone
 
 - Spring Boot backend with MSSQL connection.
@@ -23,7 +25,7 @@ cd apps/backend
 .\gradlew.bat bootRun
 ```
 
-Swagger UI: `http://localhost:8080/swagger-ui.html`
+Swagger UI: `http://localhost:8083/swagger-ui.html`
 
 ## Run frontend
 

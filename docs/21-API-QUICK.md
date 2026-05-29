@@ -1,7 +1,9 @@
 # Stock Advisor API 한눈에 보기
 
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 21(API요약) · 상태 🟢 현행
+>
 > 목적: 프론트 개발과 Swagger 테스트 시 빠르게 보는 요약본  
-> 상세 문서: `docs/STOCK_ADVISOR_API.md`  
+> 상세 문서: `docs/20-API.md`  
 > 공통 응답: 성공 `{"code":200,"data":...}` / 실패 `{"code":에러코드,"error_message":"메시지"}`
 
 ## 1. 전체 기능 요약
@@ -157,7 +159,7 @@
 | GET | `/api/market-data/macro-observations` | FRED 매크로 관측값 조회 |
 | POST | `/api/market-data/macro-observations/sync` | FRED 매크로 관측값 동기화 |
 | GET | `/api/market-data/fundamentals` | 펀더멘털 지표 조회 |
-| POST | `/api/market-data/fundamentals/sync` | SEC Company Facts 펀더멘털 동기화 |
+| POST | `/api/market-data/fundamentals/sync` | SEC Company Facts(US) / KIS 현재가 + DART 주요계정(KR) 펀더멘털 동기화 |
 
 ## 5. 평가 관리
 

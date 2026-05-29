@@ -1,5 +1,7 @@
 # Stock Advisor — 백엔드 전체 구조
 
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 30(아키텍처) · 상태 🟢 현행 · 코드기준 2026-05-29
+>
 > **Stack**: Spring Boot 3.3 · Java 21 · MSSQL · Flyway · Spring Security BasicAuth  
 > **포트**: 8083  
 > **Swagger**: http://localhost:8083/swagger-ui.html
@@ -21,14 +23,13 @@ global/        → ResultDto, CustomException, GlobalExceptionHandler
 ### 응답 공통 포맷
 
 ```json
-{
-  "success": true,
-  "data": { ... },
-  "error": null
-}
+// 성공
+{ "code": 200, "data": { ... } }
+// 실패
+{ "code": 404, "error_message": "추천을 찾을 수 없습니다." }
 ```
 
-모든 API는 `ResultDto<T>` 로 래핑. 실패 시 `success: false`, `error: { code, message }`.
+모든 API는 `ResultDto<T>` = `{ code, data, error_message }` 로 래핑 (`global/dto/ResultDto.java`). `@JsonInclude(NON_NULL)`이라 null 필드는 응답에서 빠짐.
 
 ---
 
@@ -56,9 +57,9 @@ global/        → ResultDto, CustomException, GlobalExceptionHandler
 | GET | `/api/recommendations/{id}` | 추천 단건 조회 |
 | POST | `/api/recommendations` | 추천 수동 생성 |
 | PUT | `/api/recommendations/{id}/status` | 상태 변경 (OPEN→CLOSED/EXPIRED 등) |
-| POST | `/api/recommendations/{id}/exit-confirm` | Exit 확인 기록 저장 |
 
 **추천 상태**: `OPEN` → `CLOSED` (목표 달성) / `EXPIRED` (기간 만료)
+> 구 `POST /api/recommendations/{id}/exit-confirm`은 제거됨. Exit 판정은 `ExitMonitorJob` 룰 기반 자동 청산으로 일원화.
 
 ---
 
@@ -111,7 +112,7 @@ DB 조회 후 Java 인메모리 집계.
 | GET | `/api/market-data/macro-observations` | 매크로 지표 조회 |
 | POST | `/api/market-data/macro-observations/sync` | FRED 매크로 지표 수집 |
 | GET | `/api/market-data/fundamentals` | 펀더멘털 조회 |
-| POST | `/api/market-data/fundamentals/sync` | SEC Company Facts 펀더멘털 수집 |
+| POST | `/api/market-data/fundamentals/sync` | SEC Company Facts(US) / KIS 현재가 + DART 주요계정(KR) 펀더멘털 수집 |
 
 ---
 
@@ -247,12 +248,11 @@ DB 조회 후 Java 인메모리 집계.
 | `strategy_version` | 전략 버전 |
 | `price_daily` | 일봉 시세 (V2) |
 | `price_intraday` | 장중 시세 (V2) |
-| `exit_confirm_log` | Exit 확인 로그 (V3) |
 | `news_article` | RSS 뉴스 (V4) |
 | `macro_observation` | FRED 매크로 (V4) |
 | `disclosure_event` | DART/SEC 공시 (V4) |
 | `market_signal_score` | 시그널 스코어 (V5) |
-| `fundamental_metric` | SEC 펀더멘털 (V6) |
+| `fundamental_metric` | SEC/KIS/DART 펀더멘털 (V6) |
 
 ---
 
@@ -268,7 +268,7 @@ DB 조회 후 Java 인메모리 집계.
 | `RssNewsClient` | Google News / Yahoo Finance RSS | 뉴스 수집 |
 | `DisclosureClient` | DART(KR) / SEC EDGAR(US) | 공시 수집 |
 | `FredMacroClient` | FRED 공개 CSV | 매크로 지표 |
-| `SecFundamentalClient` | SEC Company Facts | US 펀더멘털 |
+| `SecFundamentalClient` / `KisApiClient` / `DartFundamentalClient` | SEC Company Facts / KIS 현재가 / DART 단일회사 주요계정 | US 펀더멘털 / KR PER·PBR·ROE / KR 재무 YoY |
 | `CodexClient` | Codex CLI (ProcessBuilder) | AI 브리프 생성 |
 | `TelegramClient` | Telegram Bot API | 알림 발송 |
 

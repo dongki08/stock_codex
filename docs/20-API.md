@@ -1,5 +1,7 @@
 # Stock Advisor Backend API 명세
 
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 20(API) · 상태 🟢 현행 · 빠른 요약은 [21-API-QUICK.md](21-API-QUICK.md)
+>
 > 기준: Spring Boot 백엔드 현재 구현 API  
 > DB 전제: MSSQL  
 > Swagger: `http://localhost:8083/swagger-ui.html`  
@@ -891,7 +893,7 @@ Validation:
 | GET | `/api/market-data/macro-observations` | 저장된 FRED 매크로 관측값 조회 |
 | POST | `/api/market-data/macro-observations/sync` | FRED 매크로 관측값 동기화 |
 | GET | `/api/market-data/fundamentals` | 저장된 펀더멘털 지표 조회 |
-| POST | `/api/market-data/fundamentals/sync` | SEC Company Facts 펀더멘털 동기화 |
+| POST | `/api/market-data/fundamentals/sync` | SEC Company Facts(US) / KIS 현재가 + DART 주요계정(KR) 펀더멘털 동기화 |
 
 공통 Query:
 
@@ -902,7 +904,7 @@ Validation:
 | limit | Integer | N | 조회/동기화 개수 제한 |
 | seriesId | String | N | 매크로 지표 코드. 예: `DGS10`, `FEDFUNDS`, `CPIAUCSL` |
 
-펀더멘털 동기화는 현재 미국 종목을 대상으로 하며 `ticker`가 필요하다.
+펀더멘털 동기화는 `ticker`가 필요하다. 미국 시장은 SEC Company Facts, 한국 시장은 KIS 현재가와 DART 단일회사 주요계정을 사용한다.
 
 설정:
 
@@ -940,7 +942,7 @@ Validation:
 
 | 영역 | 내용 |
 |---|---|
-| 실제 데이터 수집 | 뉴스 RSS, DART/SEC 공시, FRED 매크로 수집을 1차 구현. 펀더멘털/감성 분석은 후속 |
+| 실제 데이터 수집 | 뉴스 RSS, DART/SEC 공시, FRED 매크로, SEC/KIS/DART 펀더멘털 수집과 룰 기반 감성 점수 1차 구현 |
 | 스케줄러 | KRX/US 프리오픈, US 마감, ExitMonitor, AutoResearch Job |
 | 추천 엔진 | FeatureBuilder, RecommendationEngine, PricePredictor |
 | 알림 발송 | Telegram/Kakao 실제 발송 클라이언트 |

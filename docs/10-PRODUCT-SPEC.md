@@ -1,5 +1,9 @@
 # 📈 Daily Stock Advisor — 개발명세서 (v1.2)
 
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 10(제품) · 상태 🟠 원안(스택 정정 아래) · 코드기준 2026-05-29
+>
+> ⚠️ **정정**: 아래 "기술 스택"은 v1.2 원안. **실제 구현은 MSSQL** (PostgreSQL/TimescaleDB·Redis 미사용). 결정 근거는 [90-archive/superpowers/specs](90-archive/superpowers/specs)·현행 구조는 [30-BACKEND-OVERVIEW.md](30-BACKEND-OVERVIEW.md). 이 문서는 제품 방향(무엇을/왜) 기준으로 읽을 것.
+>
 > **프로젝트 코드명**: `stock-advisor`
 > **작성일**: 2026-05-18 (v1.2 갱신)
 > **작성자**: park

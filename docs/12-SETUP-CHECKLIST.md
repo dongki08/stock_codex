@@ -1,6 +1,8 @@
 # Stock Advisor 사용자 준비/실행 체크리스트
 
-작성일: 2026-05-21
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 12(셋업) · 상태 🟢 현행(2026-05-29 정정) · 실행 전 확인용
+
+작성일: 2026-05-21 · 정정: 2026-05-29 (ExitConfirm 제거·sentiment 설정 반영)
 
 ## 현재까지 진행된 것
 
@@ -9,14 +11,13 @@
 | 영역 | 상태 | 비고 |
 |---|---|---|
 | 일봉/장중 가격 저장/조회 | 완료 | `price_daily`, `price_intraday` |
-| Exit Confirm API | 완료 | `POST /api/recommendations/{id}/exit-confirm` |
-| ExitMonitor 자동 Exit Confirm | 완료 | 중복 알림, 일일/회차 한도, 쿨다운 적용 |
+| ExitMonitor 자동 청산 | 완료 | 룰 기반(목표가/손절가/만료) 자동 청산 + 평가 기록. ⚠️ 구 `exit-confirm` API/테이블은 V8에서 제거됨 |
 | 뉴스 RSS 수집 | 완료 | 제목/링크/발행시각 저장 |
 | 공시 수집 | 완료 | DART, SEC EDGAR 메타데이터 저장 |
 | 매크로 수집 | 완료 | FRED 공개 CSV 주요 지표 저장 |
 | 수집 데이터 프론트 화면 | 완료 | 뉴스/공시/매크로 조회 및 동기화 버튼 |
 | 뉴스/공시/매크로 자동 수집 Job | 완료 | KRX/US 장 전 및 매크로 아침 수집 |
-| 펀더멘털 수집 | 부분 완료 | 미국 종목 SEC Company Facts 기반 주요 지표 수집 |
+| 펀더멘털 수집 | 부분 완료 | 미국 SEC Company Facts + 한국 KIS PER/PBR/EPS/BPS/ROE + DART 매출/영업이익/순이익 YoY 수집 |
 | 추천 Feature 수집 데이터 반영 | 부분 완료 | 뉴스 감성, 공시 중요도, 매크로/펀더멘털 데이터 가용성 점수 반영 |
 | DailyBrief 데이터 연동 | 완료 | 추천/후보군/가격/뉴스/공시/매크로/성과 통계 포함 |
 | 운영 헬스체크 | 완료 | KIS, Telegram, Codex, DART, SEC, RSS, FRED 등 |
@@ -26,11 +27,11 @@
 | 남은 개발 항목 | 설명 |
 |---|---|
 | 뉴스 감성 점수 | 현재는 뉴스 제목/링크 저장만 한다. FinBERT 등 감성 분석은 미구현 |
-| 펀더멘털 수집 | PER, PBR, ROE, 실적 성장률 수집은 미구현 |
+| 펀더멘털 수집 | 한국 PER/PBR/ROE와 DART 매출/영업이익/순이익 YoY 1차 구현. 분기 누적/상세 계정 정규화는 후속 |
 | 뉴스 감성 분석 고도화 | 현재는 제목/요약 키워드 기반 룰 점수 |
 | 공시 중요도 분류 고도화 | 현재는 제목/유형 키워드 기반 룰 점수 |
 | 실운영 API 키 검증 | 로컬 환경에서 실제 키로 호출 성공 확인 필요 |
-| 한국 펀더멘털 수집 | DART 재무제표 기반 세부 지표 수집은 후속 |
+| 한국 펀더멘털 수집 | KIS 현재가 기반 PER/PBR/EPS/BPS/ROE + DART 사업보고서 주요계정 YoY 1차 구현 |
 
 ## 사용자가 준비해야 할 것
 
@@ -69,6 +70,7 @@ DB 계정/비밀번호가 다르면 위 값을 본인 환경에 맞게 수정해
 | `CODEX_COMMAND` | 선택 | Codex CLI 실제 호출 | 로컬 fallback 브리프/판단 |
 | `DART_API_KEY` | 선택 | 한국 공시 수집 | DART 수집은 빈 결과 |
 | `SEC_USER_AGENT` | 권장 | SEC EDGAR 요청 User-Agent | 기본값 사용 |
+| `stock-advisor.sentiment.enabled` / `.base-url` (yml) | 선택 | 외부 뉴스 감성 분석 사이드카 | `false`/`dev-placeholder`(기본) 시 키워드 룰 폴백 |
 | `ADMIN_USERNAME` | 권장 | BasicAuth 계정 | 기본 `admin` |
 | `ADMIN_PASSWORD` | 권장 | BasicAuth 비밀번호 | 기본 `change-me` |
 
@@ -104,7 +106,6 @@ http://localhost:8083/swagger-ui.html
 |---|---|
 | `price_daily` | 일봉 가격 |
 | `price_intraday` | 장중 가격 |
-| `exit_confirm_log` | 자동 Exit Confirm 이력 |
 | `news_article` | 뉴스 제목/링크 |
 | `disclosure_event` | 공시 메타데이터 |
 | `macro_observation` | 매크로 관측값 |
@@ -261,6 +262,7 @@ GET /api/market-data/macro-observations?seriesId=DGS10&limit=20
 
 ```http
 POST /api/market-data/fundamentals/sync?market=NASDAQ&ticker=AAPL
+POST /api/market-data/fundamentals/sync?market=KOSPI&ticker=005930
 ```
 
 조회:
@@ -281,7 +283,7 @@ GET /api/market-data/fundamentals?market=NASDAQ&ticker=AAPL&limit=20
 | `EQUITY` | 자본 |
 | `EPS_DILUTED` | 희석 EPS |
 
-주의: 현재 펀더멘털 수집은 SEC Company Facts 기반 미국 종목부터 지원한다. 한국 DART 재무제표 기반 펀더멘털은 후속 작업이다.
+주의: 미국은 SEC Company Facts 기반 주요 재무 지표를 저장한다. 한국은 KIS 현재가 응답 기반 PER/PBR/EPS/BPS와 EPS/BPS 계산 ROE, DART 단일회사 주요계정 기반 매출/영업이익/순이익 및 YoY 성장률을 저장한다.
 
 ### 8. 추천 생성
 
@@ -331,7 +333,7 @@ GET /api/ops/external-health
 5. `GET /api/market-data/news?market=NASDAQ&ticker=AAPL&limit=5`
 6. `POST /api/market-data/macro-observations/sync?seriesId=DGS10&limit=5`
 7. `GET /api/market-data/macro-observations?seriesId=DGS10&limit=5`
-8. `POST /api/market-data/fundamentals/sync?market=NASDAQ&ticker=AAPL`
+8. `POST /api/market-data/fundamentals/sync?market=NASDAQ&ticker=AAPL` 또는 `POST /api/market-data/fundamentals/sync?market=KOSPI&ticker=005930`
 9. `GET /api/market-data/fundamentals?market=NASDAQ&ticker=AAPL&limit=20`
 10. `POST /api/dev/brief/generate?marketTrack=US`
 11. `GET /api/briefs`

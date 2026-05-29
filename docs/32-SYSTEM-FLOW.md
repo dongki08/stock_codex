@@ -1,9 +1,11 @@
 # Stock Advisor 전체 흐름도
 
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 32(흐름) · 상태 🟢 현행
+>
 > 목적: 시스템이 어떤 순서로 동작하는지 한눈에 보기 위한 문서  
 > 기준: MSSQL + Spring Boot 백엔드 중심 구조  
-> 상세 API: `docs/STOCK_ADVISOR_API.md`  
-> 간단 API: `docs/STOCK_ADVISOR_API_QUICK.md`
+> 상세 API: `docs/20-API.md`  
+> 간단 API: `docs/21-API-QUICK.md`
 
 ## 1. 전체 시스템 흐름
 
