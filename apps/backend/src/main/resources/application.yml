@@ -1,29 +1,98 @@
 spring:
   application:
-    name: stock-advisor-backend
+    name: stock-advisor-backend       # 앱 이름 (로그, actuator에 표시)
   profiles:
-    active: local
+    active: local                     # 기본 프로파일 = local (application-local.yml 로드)
+  datasource:
+    url: jdbc:sqlserver://localhost:1433;databaseName=stock_advisor;encrypt=true;trustServerCertificate=true  # MSSQL 접속 URL
+    username: park                    # DB 계정명
+    password: 12345                   # DB 비밀번호
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver  # MSSQL JDBC 드라이버
+    hikari:
+      maximum-pool-size: 10           # 커넥션 풀 최대 크기
+      minimum-idle: 2                 # 유휴 커넥션 최소 유지 수
+      connection-timeout: 30000       # 커넥션 획득 대기 최대 시간 (ms)
+      validation-timeout: 5000        # 커넥션 유효성 검사 타임아웃 (ms)
+  flyway:
+    enabled: true                     # Flyway 마이그레이션 자동 실행 여부
+    baseline-on-migrate: true         # 기존 DB에 처음 Flyway 적용 시 베이스라인 생성
+    baseline-version: 0               # 베이스라인 버전 (V1부터 마이그레이션 실행)
+    locations: classpath:db/migration # SQL 마이그레이션 파일 위치
   jpa:
     hibernate:
-      ddl-auto: validate
-    open-in-view: false
+      ddl-auto: validate              # 엔티티와 DB 스키마 일치 검증만 (자동 생성 안 함)
+    open-in-view: false               # 트랜잭션 밖에서 지연 로딩 비활성화
+    show-sql: false                   # SQL 로그 출력 여부
     properties:
       hibernate:
-        format_sql: true
+        dialect: org.hibernate.dialect.SQLServerDialect  # MSSQL 방언
+        format_sql: true              # SQL 로그 포맷 정렬
+        jdbc:
+          time_zone: Asia/Seoul       # DB 저장 시 타임존 기준
+  jackson:
+    time-zone: Asia/Seoul             # JSON 직렬화 시 날짜/시간 타임존
+
+server:
+  port: 8083                          # 서버 포트 (http://localhost:8083)
 
 springdoc:
   swagger-ui:
-    path: /swagger-ui.html
+    path: /swagger-ui.html            # Swagger UI 접속 경로
+    operations-sorter: method         # API 목록 HTTP 메서드 기준 정렬
+    tags-sorter: alpha                # API 태그 알파벳 순 정렬
   api-docs:
-    path: /v3/api-docs
+    path: /v3/api-docs                # OpenAPI JSON 스펙 경로
+
+logging:
+  level:
+    root: INFO                        # 전체 로그 레벨
+    com.parkdh.stockadvisor: DEBUG    # 앱 코드 로그 레벨 (상세)
+    org.hibernate.SQL: WARN           # Hibernate SQL 로그 억제
+    org.hibernate.orm.jdbc.bind: WARN # Hibernate 파라미터 바인딩 로그 억제
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics  # actuator 노출 엔드포인트 (헬스체크 등)
+  endpoint:
+    health:
+      show-details: always            # /actuator/health 상세 정보 항상 표시
+  info:
+    env:
+      enabled: true                   # /actuator/info에 info.* 설정값 표시
+
+info:
+  app:
+    name: stock-advisor               # /actuator/info 앱 이름
+    version: 0.0.1                    # /actuator/info 앱 버전
 
 stock-advisor:
   security:
     allowed-origins:
-      - http://localhost:5173
-      - http://127.0.0.1:5173
-    protect-dev-api: true
+      - http://localhost:5173         # CORS 허용 출처 (프론트 로컬 개발)
+      - http://127.0.0.1:5173        # CORS 허용 출처 (프론트 로컬 개발 대체)
+    protect-dev-api: true             # /api/dev/** 엔드포인트 인증 보호 여부
+  scheduler:
+    pool-size: 8                      # 스케줄러 스레드풀 크기
+  admin:
+    username: admin                   # /api/admin/** Basic Auth 계정명
+    password: change-me               # /api/admin/** Basic Auth 비밀번호
+  codex:
+    command: dev-placeholder          # Claude Code CLI 실행 명령어 경로 (일일 브리프 생성용)
+    executor:
+      pool-size: 2                    # Codex 병렬 호출 스레드풀 크기
+  kis:
+    app-key: dev-placeholder          # 한국투자증권 Open API 앱키 (KR 실시간 현재가)
+    app-secret: dev-placeholder       # 한국투자증권 Open API 앱시크릿
+    base-url: https://openapi.koreainvestment.com:9443  # KIS API 서버 URL (실전투자)
+  telegram:
+    bot-token: dev-placeholder        # 텔레그램 봇 토큰 (알림 발송)
+    chat-id: dev-placeholder          # 텔레그램 채팅/채널 ID (알림 수신처)
   dart:
-    api-key: ${DART_API_KEY:dev-placeholder}
+    api-key: dev-placeholder          # DART 전자공시 API 키 (한국 공시 수집)
   sec:
-    user-agent: ${SEC_USER_AGENT:StockAdvisor/1.0 contact@example.com}
+    user-agent: StockAdvisor/1.0 contact@example.com  # SEC EDGAR 요청 헤더 (미국 공시 수집)
+  sentiment:
+    enabled: false                    # 감성분석 사이드카 사용 여부 (미구현, false 유지)
+    base-url: dev-placeholder         # 감성분석 사이드카 URL

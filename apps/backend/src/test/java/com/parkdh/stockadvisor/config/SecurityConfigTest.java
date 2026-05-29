@@ -11,6 +11,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class SecurityConfigTest {
     @Test
+    void appSecurityPropertiesFiltersBlankAndWildcardOrigins() {
+        AppSecurityProperties properties = new AppSecurityProperties(List.of(" ", "*", "https://stock.example.com"), true);
+
+        assertThat(properties.allowedOrigins()).containsExactly("https://stock.example.com");
+    }
+
+    @Test
     void userDetailsStoresAdminPasswordWithBCrypt() {
         SecurityConfig securityConfig = new SecurityConfig(
                 new AdminProperties("admin", "change-me"),

@@ -2,15 +2,14 @@ package com.parkdh.stockadvisor.scheduler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.application.marketdata.MarketDataSyncService;
-import com.parkdh.stockadvisor.application.notification.NotificationLogService;
-import com.parkdh.stockadvisor.application.recommendation.ExitConfirmService;
+import com.parkdh.stockadvisor.application.notification.NotificationService;
 import com.parkdh.stockadvisor.domain.evaluation.EvaluationEntity;
 import com.parkdh.stockadvisor.domain.price.PriceIntradayEntity;
 import com.parkdh.stockadvisor.domain.recommendation.RecommendationEntity;
 import com.parkdh.stockadvisor.infrastructure.marketdata.kr.KisApiClient;
+import com.parkdh.stockadvisor.infrastructure.marketdata.us.StooqQuoteClient;
 import com.parkdh.stockadvisor.infrastructure.persistence.evaluation.EvaluationRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.price.PriceIntradayRepository;
-import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.ExitConfirmLogRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.RecommendationRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
 import org.mockito.ArgumentCaptor;
@@ -38,34 +37,35 @@ class ExitMonitorJobTest {
     @Mock
     private EvaluationRepository evaluationRepository;
     @Mock
-    private ExitConfirmLogRepository exitConfirmLogRepository;
-    @Mock
     private KisApiClient kisApiClient;
+    @Mock
+    private StooqQuoteClient stooqQuoteClient;
     @Mock
     private MarketDataSyncService marketDataSyncService;
     @Mock
-    private ExitConfirmService exitConfirmService;
-    @Mock
-    private NotificationLogService notificationLogService;
+    private NotificationService notificationService;
     @Mock
     private AppSettingRepository appSettingRepository;
     @Mock
     private PriceIntradayRepository priceIntradayRepository;
 
-    @Test
-    void dailyEventDedupeKeyUsesEventAndPriceBucketInsteadOfDateOnly() throws Exception {
-        ExitMonitorJob job = new ExitMonitorJob(
+    private ExitMonitorJob newJob() {
+        return new ExitMonitorJob(
                 recommendationRepository,
                 evaluationRepository,
-                exitConfirmLogRepository,
                 kisApiClient,
+                stooqQuoteClient,
                 marketDataSyncService,
-                exitConfirmService,
-                notificationLogService,
+                notificationService,
                 appSettingRepository,
                 priceIntradayRepository,
                 new ObjectMapper()
         );
+    }
+
+    @Test
+    void eventDedupeKeyUsesEventAndPriceBucketInsteadOfDateOnly() throws Exception {
+        ExitMonitorJob job = newJob();
         RecommendationEntity recommendation = new RecommendationEntity(
                 "AAPL",
                 "NASDAQ",
@@ -84,7 +84,7 @@ class ExitMonitorJobTest {
         idField.setAccessible(true);
         idField.set(recommendation, 7L);
 
-        Method method = ExitMonitorJob.class.getDeclaredMethod("buildDailyEventKey", RecommendationEntity.class, String.class, BigDecimal.class);
+        Method method = ExitMonitorJob.class.getDeclaredMethod("buildEventKey", RecommendationEntity.class, String.class, BigDecimal.class);
         method.setAccessible(true);
 
         String key = (String) method.invoke(job, recommendation, "STOP", BigDecimal.valueOf(94.90));
@@ -94,18 +94,7 @@ class ExitMonitorJobTest {
 
     @Test
     void closeRecommendationWithEvaluationStoresDrawdownFromIntradayLow() throws Exception {
-        ExitMonitorJob job = new ExitMonitorJob(
-                recommendationRepository,
-                evaluationRepository,
-                exitConfirmLogRepository,
-                kisApiClient,
-                marketDataSyncService,
-                exitConfirmService,
-                notificationLogService,
-                appSettingRepository,
-                priceIntradayRepository,
-                new ObjectMapper()
-        );
+        ExitMonitorJob job = newJob();
         RecommendationEntity recommendation = new RecommendationEntity(
                 "005930",
                 "KOSPI",

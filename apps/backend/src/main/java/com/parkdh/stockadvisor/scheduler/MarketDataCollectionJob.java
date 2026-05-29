@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.marketdata.dto.MarketDataCollectionSyncResponse;
 import com.parkdh.stockadvisor.application.marketdata.MarketDataCollectionService;
-import com.parkdh.stockadvisor.application.notification.NotificationLogService;
+import com.parkdh.stockadvisor.application.notification.NotificationService;
 import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.universe.MarketUniverseRepository;
@@ -27,7 +27,7 @@ public class MarketDataCollectionJob {
     private final MarketDataCollectionService marketDataCollectionService;
     private final MarketUniverseRepository marketUniverseRepository;
     private final AppSettingRepository appSettingRepository;
-    private final NotificationLogService notificationLogService;
+    private final NotificationService notificationService;
     private final ObjectMapper objectMapper;
 
     @Scheduled(cron = "0 15 8 * * MON-FRI", zone = "Asia/Seoul")
@@ -48,14 +48,14 @@ public class MarketDataCollectionJob {
         }
         try {
             MarketDataCollectionSyncResponse macro = marketDataCollectionService.syncMacroObservations(null, getIntSetting("collection.macro.limitPerSeries", 5));
-            notificationLogService.sendTelegramOnce(
+            notificationService.sendTelegramOnce(
                     "collection:macro:" + LocalDate.now().format(DATE_KEY_FORMATTER),
                     "Market data macro collection\nsaved=" + macro.savedCount() + "/" + macro.fetchedCount()
             );
             log.info("MarketDataCollectionJob macro completed. saved={}, fetched={}", macro.savedCount(), macro.fetchedCount());
         } catch (Exception exception) {
             log.error("MarketDataCollectionJob macro failed. error={}", exception.getMessage(), exception);
-            notificationLogService.sendTelegramOnce("collection:macro:error:" + LocalDate.now().format(DATE_KEY_FORMATTER), "❌ Macro collection error: " + exception.getMessage());
+            notificationService.sendTelegramOnce("collection:macro:error:" + LocalDate.now().format(DATE_KEY_FORMATTER), "❌ Macro collection error: " + exception.getMessage());
         }
     }
 
@@ -102,11 +102,11 @@ public class MarketDataCollectionJob {
             }
 
             String message = "%s data collection\nnews=%d/%d\ndisclosures=%d/%d\nfundamentals=%d/%d".formatted(track, newsSaved, newsFetched, disclosureSaved, disclosureFetched, fundamentalSaved, fundamentalFetched);
-            notificationLogService.sendTelegramOnce("collection:" + track + ":" + LocalDate.now().format(DATE_KEY_FORMATTER), message);
+            notificationService.sendTelegramOnce("collection:" + track + ":" + LocalDate.now().format(DATE_KEY_FORMATTER), message);
             log.info("MarketDataCollectionJob {} 완료. news={}/{}, disclosures={}/{}, fundamentals={}/{}", track, newsSaved, newsFetched, disclosureSaved, disclosureFetched, fundamentalSaved, fundamentalFetched);
         } catch (Exception exception) {
             log.error("MarketDataCollectionJob {} 실행 중 오류가 발생했습니다. error={}", track, exception.getMessage(), exception);
-            notificationLogService.sendTelegramOnce("collection:" + track + ":error:" + LocalDate.now().format(DATE_KEY_FORMATTER), "❌ " + track + " collection error: " + exception.getMessage());
+            notificationService.sendTelegramOnce("collection:" + track + ":error:" + LocalDate.now().format(DATE_KEY_FORMATTER), "❌ " + track + " collection error: " + exception.getMessage());
         }
     }
 

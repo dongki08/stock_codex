@@ -46,7 +46,7 @@ import java.util.UUID; // UUID 타입을 가져온다.
 @Service // 스프링 서비스 빈으로 등록한다.
 public class AutoresearchService { // AutoResearch 서비스를 정의한다.
     private static final String SCORING_WEIGHTS_SETTING_KEY = "recommendation.scoring.weights"; // 점수 가중치 설정 키를 정의한다.
-    private static final String DEFAULT_WEIGHTS_JSON = "{\"value\":{\"liquidity\":0.20,\"price\":0.10,\"technical\":0.30,\"context\":0.15,\"fundamental\":0.10,\"dataQuality\":0.15},\"technical\":{\"ma\":0.40,\"rsi\":0.35,\"volume\":0.25},\"context\":{\"news\":0.40,\"disclosure\":0.18,\"macro\":0.25,\"fundamental\":0.17}}"; // 기본 점수 가중치를 정의한다.
+    private static final String DEFAULT_WEIGHTS_JSON = "{\"value\":{\"liquidity\":0.20,\"price\":0.10,\"technical\":0.30,\"context\":0.15,\"fundamental\":0.10,\"dataQuality\":0.15},\"technical\":{\"ma\":0.30,\"rsi\":0.25,\"volume\":0.20,\"macd\":0.15,\"bollinger\":0.10},\"context\":{\"news\":0.40,\"disclosure\":0.18,\"macro\":0.25,\"fundamental\":0.17}}"; // 기본 점수 가중치를 정의한다.
     private static final List<String> MUTATION_PATHS = List.of(
             "value.technical",
             "value.context",
@@ -55,6 +55,8 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
             "technical.ma",
             "technical.rsi",
             "technical.volume",
+            "technical.macd",
+            "technical.bollinger",
             "context.news",
             "context.disclosure",
             "context.macro",
@@ -147,6 +149,7 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
                     bestWeightsJson = proposalJson; // 최고 가중치를 갱신한다.
                     promoted = true; // 승격 후보가 있음을 표시한다.
                 } // 개선 후보 처리를 종료한다.
+                saveStrategyYaml(proposalSha, buildStrategyYaml("proposal-" + iterNo, simulationRequest, proposalJson, evaluation.metricsJson(), metricValue, keep ? "KEEP" : "DISCARD")); // 후보 전략 YAML 스냅샷을 저장한다.
                 savedRuns.add(autoresearchRunRepository.save(new AutoresearchRunEntity(
                         jobRunId,
                         iterNo,
@@ -191,6 +194,7 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
                     true
             )); // 새 챔피언 전략 버전을 저장한다.
             saveStrategyWeights(semver, bestWeightsJson); // 롤백을 위해 전략별 가중치 스냅샷을 저장한다.
+            saveStrategyYaml(semver, buildStrategyYaml(semver, simulationRequest, bestWeightsJson, null, bestMetric, "CHAMPION")); // 챔피언 전략 YAML 스냅샷을 저장한다.
         } else { // 개선 후보가 없으면 원래 가중치를 복구한다.
             saveWeights(originalWeightsJson); // 원래 가중치를 복구한다.
         } // 승격 여부 처리를 종료한다.
@@ -323,6 +327,67 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
     private String strategyWeightsKey(String semver) { // 전략별 가중치 스냅샷 설정 키를 만든다.
         return "autoresearch.weights." + semver; // app_setting 키 길이 내에서 semver 기반 키를 반환한다.
     } // 전략별 가중치 스냅샷 설정 키 생성을 종료한다.
+
+    private void saveStrategyYaml(String keySuffix, String yaml) { // AutoResearch 전략 YAML 스냅샷을 저장한다.
+        String key = strategyYamlKey(keySuffix); // 스냅샷 설정 키를 만든다.
+        AppSettingEntity setting = appSettingRepository.findById(key)
+                .orElseGet(() -> new AppSettingEntity(key, "{}", "AutoResearch strategy.yaml 스냅샷", "autoresearch")); // 없으면 새 설정을 생성한다.
+        String beforeJson = setting.getValueJson(); // 변경 전 값을 보관한다.
+        String valueJson = buildYamlSettingJson(yaml); // YAML 문자열을 JSON 값으로 감싼다.
+        setting.updateValue(valueJson, "autoresearch"); // 스냅샷 값을 갱신한다.
+        appSettingRepository.save(setting); // 스냅샷을 저장한다.
+        if (!beforeJson.equals(valueJson)) { // 실제 변경이 있으면 감사 로그를 남긴다.
+            auditLogRepository.save(new AuditLogEntity("autoresearch", "UPDATE_SETTING:" + key, beforeJson, valueJson)); // 스냅샷 변경 감사 로그를 저장한다.
+        } // 변경 여부 확인을 종료한다.
+    } // AutoResearch 전략 YAML 스냅샷 저장을 종료한다.
+
+    private String strategyYamlKey(String keySuffix) { // 전략 YAML 스냅샷 설정 키를 만든다.
+        String safeSuffix = keySuffix == null || keySuffix.isBlank() ? "unknown" : keySuffix.replaceAll("[^A-Za-z0-9_.-]", "-"); // 안전한 키 suffix를 만든다.
+        if (safeSuffix.length() > 20) { // app_setting 키 길이 제한을 넘지 않도록 줄인다.
+            safeSuffix = safeSuffix.substring(0, 20); // suffix를 자른다.
+        } // suffix 길이 확인을 종료한다.
+        return "autoresearch.strategyYaml." + safeSuffix; // 전체 키를 반환한다.
+    } // 전략 YAML 스냅샷 설정 키 생성을 종료한다.
+
+    private String buildStrategyYaml(String name, BacktestSimulationRequest request, String weightsJson, String metricsJson, BigDecimal metricValue, String decision) { // strategy.yaml 내용을 만든다.
+        StringBuilder builder = new StringBuilder(); // YAML 문자열을 구성한다.
+        builder.append("name: ").append(name).append('\n'); // 이름을 기록한다.
+        builder.append("strategy: recommendation-engine-v1\n"); // 전략 타입을 기록한다.
+        builder.append("decision: ").append(decision).append('\n'); // 의사결정을 기록한다.
+        builder.append("metricName: avgPnlPct\n"); // 평가 지표명을 기록한다.
+        builder.append("metricValue: ").append(metricValue == null ? "null" : metricValue).append('\n'); // 평가 지표값을 기록한다.
+        builder.append("backtest:\n"); // 백테스트 블록을 시작한다.
+        builder.append("  market: ").append(request.market()).append('\n'); // 시장을 기록한다.
+        builder.append("  periodFrom: ").append(request.periodFrom()).append('\n'); // 시작일을 기록한다.
+        builder.append("  periodTo: ").append(request.periodTo()).append('\n'); // 종료일을 기록한다.
+        builder.append("  maxTickers: ").append(request.maxTickers()).append('\n'); // 최대 종목 수를 기록한다.
+        builder.append("  holdingDays: ").append(request.holdingDays()).append('\n'); // 보유 기간을 기록한다.
+        builder.append("  targetPct: ").append(request.targetPct()).append('\n'); // 목표 수익률을 기록한다.
+        builder.append("  stopPct: ").append(request.stopPct()).append('\n'); // 손절률을 기록한다.
+        if (metricsJson != null && !metricsJson.isBlank()) { // 백테스트 메트릭이 있으면 기록한다.
+            builder.append("metricsJson: |\n"); // 멀티라인 JSON 블록을 시작한다.
+            builder.append(indentYamlBlock(metricsJson)); // 메트릭 JSON을 들여쓴다.
+        } // 메트릭 기록을 종료한다.
+        builder.append("weights: |\n"); // 가중치 JSON 블록을 시작한다.
+        builder.append(indentYamlBlock(weightsJson)); // 가중치 JSON을 들여쓴다.
+        return builder.toString(); // YAML 문자열을 반환한다.
+    } // strategy.yaml 내용 생성을 종료한다.
+
+    private String indentYamlBlock(String value) { // YAML block scalar 값을 들여쓴다.
+        return value.lines()
+                .map(line -> "  " + line)
+                .reduce("", (left, right) -> left + right + "\n"); // 각 줄에 들여쓰기를 추가한다.
+    } // YAML block scalar 들여쓰기를 종료한다.
+
+    private String buildYamlSettingJson(String yaml) { // YAML 문자열을 app_setting JSON으로 감싼다.
+        try { // JSON 직렬화 예외를 처리한다.
+            ObjectNode root = objectMapper.createObjectNode(); // JSON 객체를 만든다.
+            root.put("yaml", yaml); // YAML 문자열을 저장한다.
+            return objectMapper.writeValueAsString(root); // JSON 문자열로 반환한다.
+        } catch (Exception exception) { // 직렬화 예외를 잡는다.
+            throw new CustomException("Failed to serialize strategy yaml: " + exception.getMessage(), 500); // 직렬화 실패 예외를 던진다.
+        } // 예외 처리를 종료한다.
+    } // YAML app_setting JSON 생성을 종료한다.
 
     private String mutateWeights(String sourceJson, int iterNo) { // 가중치 JSON을 변형한다.
         try { // JSON 파싱 실패를 처리한다.

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
-    "generate:api": "openapi-typescript http://localhost:8080/v3/api-docs -o ../../packages/shared-types/src/api.d.ts"
+    "generate:api": "openapi-typescript http://localhost:8083/v3/api-docs -o ../../packages/shared-types/src/api.d.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "latest",

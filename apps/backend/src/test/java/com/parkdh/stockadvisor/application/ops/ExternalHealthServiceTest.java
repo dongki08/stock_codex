@@ -6,6 +6,7 @@ import com.parkdh.stockadvisor.config.CodexCliProperties;
 import com.parkdh.stockadvisor.config.DartProperties;
 import com.parkdh.stockadvisor.config.KisProperties;
 import com.parkdh.stockadvisor.config.SecProperties;
+import com.parkdh.stockadvisor.config.SentimentAnalysisProperties;
 import com.parkdh.stockadvisor.config.TelegramProperties;
 import com.parkdh.stockadvisor.domain.marketdata.DisclosureEventEntity;
 import com.parkdh.stockadvisor.domain.marketdata.FundamentalMetricEntity;
@@ -13,6 +14,7 @@ import com.parkdh.stockadvisor.domain.marketdata.MacroObservationEntity;
 import com.parkdh.stockadvisor.domain.marketdata.NewsArticleEntity;
 import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.price.PriceIntradayEntity;
+import com.parkdh.stockadvisor.infrastructure.ops.ExternalApiPingClient;
 import com.parkdh.stockadvisor.infrastructure.persistence.codex.CodexCallRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.DisclosureEventRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.FundamentalMetricRepository;
@@ -36,7 +38,11 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,18 +65,23 @@ class ExternalHealthServiceTest {
     private MacroObservationRepository macroObservationRepository;
     @Mock
     private FundamentalMetricRepository fundamentalMetricRepository;
+    @Mock
+    private ExternalApiPingClient externalApiPingClient;
 
     private ExternalHealthService service;
 
     @BeforeEach
     void setUp() {
         when(appSettingRepository.findById(anyString())).thenReturn(Optional.empty());
+        lenient().when(externalApiPingClient.ping(anyString(), anyString(), anyMap()))
+                .thenReturn(new ExternalApiPingClient.PingResult(true, 200, null, 20));
         service = new ExternalHealthService(
                 new KisProperties("kis-key", "kis-secret", "https://kis.example"),
                 new TelegramProperties("telegram-token", "chat-id"),
                 new CodexCliProperties("codex"),
                 new DartProperties("dart-key"),
                 new SecProperties("stock-advisor@example.com"),
+                new SentimentAnalysisProperties(true, "http://localhost:18080"),
                 codexCallRepository,
                 appSettingRepository,
                 new ObjectMapper(),
@@ -79,8 +90,125 @@ class ExternalHealthServiceTest {
                 newsArticleRepository,
                 disclosureEventRepository,
                 macroObservationRepository,
-                fundamentalMetricRepository
+                fundamentalMetricRepository,
+                externalApiPingClient
         );
+    }
+
+    @Test
+    void getExternalHealthIncludesExternalApiPingStatus() {
+        when(externalApiPingClient.ping(anyString(), anyString(), anyMap()))
+                .thenAnswer(invocation -> {
+                    String name = invocation.getArgument(0);
+                    if ("DART".equals(name)) {
+                        return new ExternalApiPingClient.PingResult(false, 503, "service unavailable", 37);
+                    }
+                    return new ExternalApiPingClient.PingResult(true, 200, null, 21);
+                });
+
+        ExternalHealthResponse response = service.getExternalHealth();
+
+        assertThat(response.components())
+                .filteredOn(component -> component.name().startsWith("Ping "))
+                .extracting(component -> component.name() + ":" + component.status())
+                .containsExactly(
+                        "Ping KIS:READY",
+                        "Ping DART:UNREACHABLE",
+                        "Ping SEC EDGAR:READY",
+                        "Ping RSS:READY",
+                        "Ping FRED:READY",
+                        "Ping Stooq:READY",
+                        "Ping KIND:READY",
+                        "Ping Sentiment Sidecar:READY"
+                );
+    }
+
+    @Test
+    void getExternalHealthMarksSentimentSidecarMissingWhenDisabled() {
+        service = new ExternalHealthService(
+                new KisProperties("kis-key", "kis-secret", "https://kis.example"),
+                new TelegramProperties("telegram-token", "chat-id"),
+                new CodexCliProperties("codex"),
+                new DartProperties("dart-key"),
+                new SecProperties("stock-advisor@example.com"),
+                new SentimentAnalysisProperties(false, "http://localhost:18080"),
+                codexCallRepository,
+                appSettingRepository,
+                new ObjectMapper(),
+                priceDailyRepository,
+                priceIntradayRepository,
+                newsArticleRepository,
+                disclosureEventRepository,
+                macroObservationRepository,
+                fundamentalMetricRepository,
+                externalApiPingClient
+        );
+
+        ExternalHealthResponse response = service.getExternalHealth();
+
+        assertThat(response.components())
+                .filteredOn(component -> "Ping Sentiment Sidecar".equals(component.name()))
+                .singleElement()
+                .satisfies(component -> {
+                    assertThat(component.status()).isEqualTo("MISSING_CONFIG");
+                    assertThat(component.message()).contains("비활성화");
+                });
+        verify(externalApiPingClient, never()).ping("Sentiment Sidecar", "http://localhost:18080/health", java.util.Map.of());
+    }
+
+    @Test
+    void getExternalHealthMarksSentimentSidecarMissingWhenBaseUrlIsPlaceholder() {
+        service = new ExternalHealthService(
+                new KisProperties("kis-key", "kis-secret", "https://kis.example"),
+                new TelegramProperties("telegram-token", "chat-id"),
+                new CodexCliProperties("codex"),
+                new DartProperties("dart-key"),
+                new SecProperties("stock-advisor@example.com"),
+                new SentimentAnalysisProperties(true, "dev-placeholder"),
+                codexCallRepository,
+                appSettingRepository,
+                new ObjectMapper(),
+                priceDailyRepository,
+                priceIntradayRepository,
+                newsArticleRepository,
+                disclosureEventRepository,
+                macroObservationRepository,
+                fundamentalMetricRepository,
+                externalApiPingClient
+        );
+
+        ExternalHealthResponse response = service.getExternalHealth();
+
+        assertThat(response.components())
+                .filteredOn(component -> "Ping Sentiment Sidecar".equals(component.name()))
+                .singleElement()
+                .satisfies(component -> {
+                    assertThat(component.status()).isEqualTo("MISSING_CONFIG");
+                    assertThat(component.message()).contains("Sentiment Sidecar 설정");
+                });
+        verify(externalApiPingClient, never()).ping("Sentiment Sidecar", "/health", java.util.Map.of());
+    }
+
+    @Test
+    void getExternalHealthMarksSentimentSidecarUnreachableWhenHealthReturnsNotFound() {
+        when(externalApiPingClient.ping(anyString(), anyString(), anyMap()))
+                .thenAnswer(invocation -> {
+                    String name = invocation.getArgument(0);
+                    if ("Sentiment Sidecar".equals(name)) {
+                        return new ExternalApiPingClient.PingResult(true, 404, null, 18);
+                    }
+                    return new ExternalApiPingClient.PingResult(true, 200, null, 21);
+                });
+
+        ExternalHealthResponse response = service.getExternalHealth();
+
+        assertThat(response.components())
+                .filteredOn(component -> "Ping Sentiment Sidecar".equals(component.name()))
+                .singleElement()
+                .satisfies(component -> {
+                    assertThat(component.status()).isEqualTo("UNREACHABLE");
+                    assertThat(component.message()).contains("status=404");
+                });
     }
 
     @Test

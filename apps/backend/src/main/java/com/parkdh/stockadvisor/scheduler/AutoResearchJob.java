@@ -12,6 +12,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -30,16 +31,20 @@ public class AutoResearchJob {
         LocalDate periodTo = LocalDate.now().minusDays(1);
         LocalDate periodFrom = periodTo.minusDays(365);
         int iterations = getIntSetting("autoresearch.targetIterations", 8);
+        int maxTickers = getIntSetting("autoresearch.maxTickers", 30);
+        int holdingDays = getIntSetting("autoresearch.holdingDays", 20);
+        BigDecimal targetPct = getDecimalSetting("autoresearch.targetPct", null);
+        BigDecimal stopPct = getDecimalSetting("autoresearch.stopPct", null);
         log.info("AutoResearchJob 시작. periodFrom={}, periodTo={}, iterations={}", periodFrom, periodTo, iterations);
         autoresearchService.runAutoResearch(new AutoresearchAutoRunRequest(
                 "ALL",
                 periodFrom,
                 periodTo,
                 iterations,
-                30,
-                20,
-                null,
-                null
+                maxTickers,
+                holdingDays,
+                targetPct,
+                stopPct
         ));
         log.info("AutoResearchJob 완료");
     }
@@ -70,6 +75,24 @@ public class AutoResearchJob {
                         try {
                             JsonNode node = objectMapper.readTree(valueJson);
                             return node.path("value").asInt(defaultValue);
+                        } catch (Exception exception) {
+                            return defaultValue;
+                        }
+                    })
+                    .orElse(defaultValue);
+        } catch (Exception exception) {
+            return defaultValue;
+        }
+    }
+
+    private BigDecimal getDecimalSetting(String key, BigDecimal defaultValue) {
+        try {
+            return appSettingRepository.findById(key)
+                    .map(AppSettingEntity::getValueJson)
+                    .map(valueJson -> {
+                        try {
+                            JsonNode node = objectMapper.readTree(valueJson);
+                            return node.path("value").isNumber() ? node.path("value").decimalValue() : defaultValue;
                         } catch (Exception exception) {
                             return defaultValue;
                         }

@@ -11,9 +11,12 @@ import com.parkdh.stockadvisor.domain.marketdata.MacroObservationEntity;
 import com.parkdh.stockadvisor.domain.marketdata.NewsArticleEntity;
 import com.parkdh.stockadvisor.global.exception.CustomException;
 import com.parkdh.stockadvisor.infrastructure.marketdata.disclosure.DisclosureClient;
+import com.parkdh.stockadvisor.infrastructure.marketdata.fundamental.DartFundamentalClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.fundamental.SecFundamentalClient;
+import com.parkdh.stockadvisor.infrastructure.marketdata.kr.KisApiClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.macro.FredMacroClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.news.RssNewsClient;
+import com.parkdh.stockadvisor.infrastructure.marketdata.news.SentimentAnalysisClient;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.DisclosureEventRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.FundamentalMetricRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.MacroObservationRepository;
@@ -41,7 +44,10 @@ public class MarketDataCollectionService {
     private final DisclosureClient disclosureClient;
     private final FredMacroClient fredMacroClient;
     private final SecFundamentalClient secFundamentalClient;
+    private final DartFundamentalClient dartFundamentalClient;
+    private final KisApiClient kisApiClient;
     private final MarketSignalScorer marketSignalScorer;
+    private final SentimentAnalysisClient sentimentAnalysisClient;
 
     public List<NewsArticleResponse> getNewsArticles(String market, String ticker, Integer limit) {
         int safeLimit = normalizeLimit(limit, 100, 1000, "news limit");
@@ -137,6 +143,14 @@ public class MarketDataCollectionService {
     @Transactional
     public MarketDataCollectionSyncResponse syncFundamentalMetrics(String market, String ticker) {
         String safeMarket = market == null || market.isBlank() || "ALL".equals(market) ? "NASDAQ" : market;
+        if (isKoreanMarket(safeMarket)) {
+            List<KisApiClient.KisFundamentalMetric> kisRows = kisApiClient.fetchFundamentalMetrics(ticker, safeMarket);
+            List<DartFundamentalClient.DartFundamentalRow> dartRows = dartFundamentalClient.fetchFundamentals(ticker, safeMarket);
+            List<FundamentalMetricEntity> saved = new java.util.ArrayList<>();
+            saved.addAll(kisRows.stream().map(this::upsertKisFundamental).toList());
+            saved.addAll(dartRows.stream().map(this::upsertDartFundamental).toList());
+            return new MarketDataCollectionSyncResponse("KIS_INQUIRE_PRICE+DART_FNLTT_SINGLE", safeMarket, ticker, kisRows.size() + dartRows.size(), saved.size(), saved.stream().map(FundamentalMetricEntity::getMetricKey).limit(20).toList());
+        }
         if (!"NASDAQ".equals(safeMarket) && !"NYSE".equals(safeMarket)) {
             return new MarketDataCollectionSyncResponse("SEC_COMPANYFACTS", safeMarket, ticker, 0, 0, List.of());
         }
@@ -147,7 +161,8 @@ public class MarketDataCollectionService {
 
     private NewsArticleEntity upsertNews(RssNewsClient.NewsRow row) {
         String key = "NEWS:" + hash(row.source() + ":" + row.url());
-        java.math.BigDecimal sentimentScore = marketSignalScorer.scoreNewsSentiment(row.title(), row.summary());
+        java.math.BigDecimal sentimentScore = sentimentAnalysisClient.analyze(row.title(), row.summary())
+                .orElseGet(() -> marketSignalScorer.scoreNewsSentiment(row.title(), row.summary()));
         return newsArticleRepository.findById(key)
                 .map(existing -> {
                     existing.update(row.title(), row.publishedAt(), row.summary(), sentimentScore);
@@ -189,6 +204,28 @@ public class MarketDataCollectionService {
                 .orElseGet(() -> fundamentalMetricRepository.save(new FundamentalMetricEntity(key, row.ticker(), row.market(), row.metricName(), row.metricValue(), row.unit(), row.fiscalYear(), row.fiscalPeriod(), row.periodEnd(), row.source(), LocalDateTime.now())));
     }
 
+    private FundamentalMetricEntity upsertKisFundamental(KisApiClient.KisFundamentalMetric row) {
+        String periodKey = row.periodEnd() == null ? "NA" : row.periodEnd().toString();
+        String key = "FUND:%s:%s:%s:%s".formatted(row.source(), row.market(), row.ticker(), row.metricName() + ":" + periodKey);
+        return fundamentalMetricRepository.findById(key)
+                .map(existing -> {
+                    existing.update(row.metricValue(), row.unit(), null, "TTM", row.periodEnd(), LocalDateTime.now());
+                    return fundamentalMetricRepository.save(existing);
+                })
+                .orElseGet(() -> fundamentalMetricRepository.save(new FundamentalMetricEntity(key, row.ticker(), row.market(), row.metricName(), row.metricValue(), row.unit(), null, "TTM", row.periodEnd(), row.source(), LocalDateTime.now())));
+    }
+
+    private FundamentalMetricEntity upsertDartFundamental(DartFundamentalClient.DartFundamentalRow row) {
+        String periodKey = row.periodEnd() == null ? "NA" : row.periodEnd().toString();
+        String key = "FUND:%s:%s:%s:%s".formatted(row.source(), row.market(), row.ticker(), row.metricName() + ":" + periodKey);
+        return fundamentalMetricRepository.findById(key)
+                .map(existing -> {
+                    existing.update(row.metricValue(), row.unit(), row.fiscalYear(), row.fiscalPeriod(), row.periodEnd(), LocalDateTime.now());
+                    return fundamentalMetricRepository.save(existing);
+                })
+                .orElseGet(() -> fundamentalMetricRepository.save(new FundamentalMetricEntity(key, row.ticker(), row.market(), row.metricName(), row.metricValue(), row.unit(), row.fiscalYear(), row.fiscalPeriod(), row.periodEnd(), row.source(), LocalDateTime.now())));
+    }
+
     private NewsArticleResponse toResponse(NewsArticleEntity entity) {
         return new NewsArticleResponse(entity.getArticleKey(), entity.getTicker(), entity.getMarket(), entity.getTitle(), entity.getUrl(), entity.getSource(), entity.getPublishedAt(), entity.getSummary(), entity.getSentimentScore());
     }
@@ -219,6 +256,10 @@ public class MarketDataCollectionService {
 
     private boolean hasValue(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private boolean isKoreanMarket(String market) {
+        return "KOSPI".equals(market) || "KOSDAQ".equals(market);
     }
 
     private String hash(String text) {

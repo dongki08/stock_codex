@@ -32,6 +32,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -108,6 +109,52 @@ class AutoresearchServiceTest {
         verify(strategyVersionRepository).save(strategyCaptor.capture());
         assertThat(strategyCaptor.getValue().getChampion()).isTrue();
         assertThat(strategyCaptor.getValue().getMetricValue()).isEqualByComparingTo("1.25");
+    }
+
+    @Test
+    void runAutoResearchStoresStrategyYamlSnapshotsForProposalAndChampion() {
+        AppSettingEntity weights = new AppSettingEntity(
+                "recommendation.scoring.weights",
+                "{\"value\":{\"liquidity\":0.20,\"price\":0.10,\"technical\":0.30,\"context\":0.15,\"fundamental\":0.10,\"dataQuality\":0.15},\"technical\":{\"ma\":0.30,\"rsi\":0.25,\"volume\":0.20,\"macd\":0.15,\"bollinger\":0.10},\"context\":{\"news\":0.40,\"disclosure\":0.18,\"macro\":0.25,\"fundamental\":0.17}}",
+                "weights",
+                "test"
+        );
+        when(appSettingRepository.findById(anyString())).thenAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            return "recommendation.scoring.weights".equals(key) ? Optional.of(weights) : Optional.empty();
+        });
+        when(strategyVersionRepository.findByChampion(true)).thenReturn(List.of());
+        when(backtestRunService.evaluateRecommendationEngine(any())).thenReturn(new BacktestRunService.BacktestEvaluation(
+                "recommendation-engine-v1",
+                LocalDate.of(2025, 1, 1),
+                LocalDate.of(2025, 12, 31),
+                "{\"avgPnlPct\":1.25,\"tradeCount\":5}",
+                BigDecimal.valueOf(1.25)
+        ));
+        when(autoresearchRunRepository.save(any(AutoresearchRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(strategyVersionRepository.save(any(StrategyVersionEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.runAutoResearch(new AutoresearchAutoRunRequest(
+                "NASDAQ",
+                LocalDate.of(2025, 1, 1),
+                LocalDate.of(2025, 12, 31),
+                1,
+                10,
+                20,
+                BigDecimal.valueOf(4),
+                BigDecimal.valueOf(2)
+        ));
+
+        ArgumentCaptor<AppSettingEntity> settingCaptor = ArgumentCaptor.forClass(AppSettingEntity.class);
+        verify(appSettingRepository, atLeastOnce()).save(settingCaptor.capture());
+        assertThat(settingCaptor.getAllValues())
+                .filteredOn(setting -> setting.getSettingKey().startsWith("autoresearch.strategyYaml."))
+                .extracting(AppSettingEntity::getValueJson)
+                .anySatisfy(valueJson -> assertThat(valueJson)
+                        .contains("strategy: recommendation-engine-v1")
+                        .contains("market: NASDAQ")
+                        .contains("avgPnlPct")
+                        .contains("weights:"));
     }
 
     @Test
