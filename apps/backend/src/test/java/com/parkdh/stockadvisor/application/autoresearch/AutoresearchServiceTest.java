@@ -3,6 +3,7 @@ package com.parkdh.stockadvisor.application.autoresearch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.autoresearch.dto.AutoresearchAutoRunRequest;
 import com.parkdh.stockadvisor.application.backtest.BacktestRunService;
+import com.parkdh.stockadvisor.application.research.FeatureICService;
 import com.parkdh.stockadvisor.domain.autoresearch.AutoresearchRunEntity;
 import com.parkdh.stockadvisor.domain.autoresearch.StrategyVersionEntity;
 import com.parkdh.stockadvisor.domain.evaluation.EvaluationEntity;
@@ -31,7 +32,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,6 +55,8 @@ class AutoresearchServiceTest {
     private EvaluationRepository evaluationRepository;
     @Mock
     private BacktestRunService backtestRunService;
+    @Mock
+    private FeatureICService featureICService;
 
     private AutoresearchService service;
 
@@ -65,8 +70,15 @@ class AutoresearchServiceTest {
                 recommendationRepository,
                 evaluationRepository,
                 backtestRunService,
+                featureICService,
                 new ObjectMapper()
         );
+        lenient().when(featureICService.guideForIteration(anyInt(), any())).thenReturn(new FeatureICService.MutationGuide(
+                "value.technical",
+                BigDecimal.valueOf(1.10),
+                FeatureICService.FeatureICReport.empty(),
+                false
+        ));
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.marketdata.dto.MarketDataCollectionSyncResponse;
 import com.parkdh.stockadvisor.application.marketdata.MarketDataCollectionService;
+import com.parkdh.stockadvisor.application.marketdata.MarketDataSyncService;
 import com.parkdh.stockadvisor.application.notification.NotificationService;
 import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
@@ -25,6 +26,7 @@ public class MarketDataCollectionJob {
     private static final DateTimeFormatter DATE_KEY_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
 
     private final MarketDataCollectionService marketDataCollectionService;
+    private final MarketDataSyncService marketDataSyncService;
     private final MarketUniverseRepository marketUniverseRepository;
     private final AppSettingRepository appSettingRepository;
     private final NotificationService notificationService;
@@ -37,6 +39,13 @@ public class MarketDataCollectionJob {
 
     @Scheduled(cron = "0 40 21 * * MON-FRI", zone = "Asia/Seoul")
     public void runUsPreOpenCollection() {
+        // TASK-8: regime 필터용 지수 일봉 먼저 동기화 (^KS11 KOSPI, SPY)
+        try {
+            int indexSaved = marketDataSyncService.syncIndexDailyPrices(260); // 약 1년치 적재
+            log.info("MarketDataCollectionJob 지수 일봉 동기화 완료. saved={}", indexSaved);
+        } catch (Exception exception) {
+            log.warn("MarketDataCollectionJob 지수 일봉 동기화 실패. error={}", exception.getMessage());
+        }
         runMarketCollection("US", List.of("NASDAQ", "NYSE"));
     }
 

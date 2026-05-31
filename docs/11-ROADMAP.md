@@ -1,8 +1,8 @@
 # Stock Advisor 작업명세서
 
-> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 11(로드맵) · 상태 🟢 현행(§0=2026-05-29 델타, §1↓=05-22 스냅샷)
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 11(로드맵) · 상태 🟢 현행(§0=2026-05-31 델타, §1↓=05-22 스냅샷)
 >
-> 작성 기준: 2026-05-22 (아래 §0 = 2026-05-29 재검토 델타)
+> 작성 기준: 2026-05-22 (아래 §0 = 2026-05-31 재검토 델타)
 
 ## 📍 단계별 진행 맵 (어디까지 왔나 — 한눈에)
 
@@ -20,15 +20,17 @@
 | **M4** | 자기개선 루프 | ⚠️ | `AutoresearchService`·`BacktestRunService` 본체 완성 | **백테스트 미래참조로 사실상 무효** → M7 TASK-1·2로 재작업 |
 | **M5** | 알림·브리프·스케줄러 | 🔶 | `NotificationService` 4개 스케줄러+ExitMonitor 배선, Telegram·Codex 브리프, `ExternalApiPingClient` 헬스 | 실키 발송 검증, dev-placeholder→실연동 |
 | **M6** | 프론트 운영화면 | ✅ | 추천/후보군/종목/통계/설정/수집/백테스트 화면 | 잔여 폴리시 |
-| **M7** | 💰 수익 두뇌 강화 | ⛔ | — | **지금 핵심.** [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md) TASK-1~8 |
-| **M8** | 실운영·검증 | ⛔ | — | 실키 검증·페이퍼트레이딩·성과 모니터링 |
+| **M7** | 💰 수익 두뇌 강화 | ✅ | TASK-1·2·3·4·5·6·7·8 완료 | 운영 데이터로 검증. [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md) |
+| **M8** | 실운영·검증 | 🔶 | `GET /api/stats/paper-trading` + 성과 통계 화면 페이퍼트레이딩 패널 + US 마감 운영 알림 요약으로 OPEN 추천 추적 시작 | 실제 Telegram 발송 검증 |
 
 ### 지금 당장 할 일 (순서)
 
-1. **M7 TASK-1·2** — 백테스트 score 진입화 + Point-in-time 스냅샷. (M4 무효 문제의 토대 해결)
-2. **M7 TASK-8·3·4** — regime 필터 on / 펀더멘털·매크로 방향성화 / 뉴스 감성 주축. (병렬, 즉시 알파)
-3. **M7 TASK-5·6·7** — cross-sectional 표준화 / IC 측정 / 포지션 사이징.
-4. **M5·M8** — 실키 검증 → 페이퍼 트레이딩으로 실제 수익률 추적.
+1. ~~**M7 TASK-1·2**~~ ✅ — 백테스트 score 진입화 + Point-in-time 스냅샷.
+2. ~~**M7 TASK-8·3·4**~~ ✅ — regime 필터 on / 펀더멘털·매크로 방향성화 / 뉴스 감성 주축.
+3. ~~**M7 TASK-5**~~ ✅ — cross-sectional 표준화.
+4. ~~**M7 TASK-6**~~ ✅ — IC 측정 + 가중치 가이드.
+5. ~~**M7 TASK-7**~~ ✅ — 포지션 사이징.
+6. **M5·M8** — 실제 Telegram 발송 검증 → 페이퍼 트레이딩으로 실제 수익률 추적.
 
 > 상세 작업카드(대상 파일·변경·검증)는 [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md). 진행하며 완료 단계 상태(⛔→🔶→✅) 갱신.
 
@@ -49,6 +51,14 @@
 - **테스트 24종** (`RecommendationEngineTest`·`UniverseFeatureBuilderTest`·`BacktestRunServiceTest`·`PricePredictorTest` 등).
 - 🔴 **빌드 리스크(즉시)**: `ExitConfirmServiceTest`가 삭제된 `ExitConfirmService`를 참조 → 컴파일 실패. 테스트 삭제/이관 필요.
 - **남은 핵심 과제**: 수익률 두뇌 강화 → [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md). 결함 이력 → [41-DEFECTS-AND-FIXES](41-DEFECTS-AND-FIXES.md).
+- **2026-05-31 M7 TASK-1·2·3·4·8 완료** — 백테스트 score 진입(미래참조 제거), PIT 피처 스냅샷(`feature_snapshot` V9), 펀더멘털/매크로 방향성 점수, 뉴스 감성 주축, regime 필터 기본 ON + 지수 일봉 적재. `gradlew test` BUILD SUCCESSFUL.
+- **2026-05-31 M7 TASK-5 완료** — `UniverseFeatureBuilder.buildFeatures()`에서 시장별 raw feature 점수를 백분위 기반 cross-sectional 점수로 변환 후 재합산. `featureJson`에 `raw*Score`, `crossSectionalNormalized`, `feature-rule-v4` 기록. `gradlew test` BUILD SUCCESSFUL. 다음: TASK-6·7.
+- **2026-05-31 M7 TASK-6 완료** — `FeatureICService`가 `feature_snapshot`의 피처값과 forward return 간 Spearman IC를 계산하고, `AutoresearchService` mutation을 IC 기반 증감으로 가이드. `autoresearch_run.diff_summary`에 IC 요약 기록. `gradlew test` BUILD SUCCESSFUL. 다음: TASK-7.
+- **2026-05-31 M7 TASK-7 완료** — `PricePredictor`가 변동성/position sizing 원점수를 산출하고, 추천 생성 시 confidence×역변동성 점수를 묶음별 총 100%, 종목당 20% 상한으로 정규화해 `signalsJson.positionWeightPct`에 기록. `gradlew test` BUILD SUCCESSFUL. 다음: M5·M8 실키 검증/페이퍼트레이딩.
+- **2026-05-31 M8 페이퍼트레이딩 모니터링 착수** — `GET /api/stats/paper-trading` 추가. OPEN 추천의 최신 일봉 종가 기준 미실현 손익, 비중 반영 손익, 목표/손절 터치 상태를 반환. `gradlew test` BUILD SUCCESSFUL. 다음: 프론트 패널/운영 알림 연동, 실제 Telegram 발송 검증.
+- **2026-05-31 M8 페이퍼트레이딩 프론트 패널 완료** — 성과 통계 화면에 OPEN 추천 페이퍼트레이딩 요약/포지션 표 추가. `npm run build` BUILD SUCCESSFUL. 다음: 운영 알림 연동, 실제 Telegram 발송 검증.
+- **2026-05-31 M8 페이퍼트레이딩 운영 알림 연동** — US 마감 요약 알림에 `StatsService.getPaperTrading()` 기반 OPEN 추천 수, 가격 확인 수, 평균/비중 미실현 손익, 목표/손절 터치 수, 리스크 체크 포지션을 포함. `gradlew test` BUILD SUCCESSFUL. 다음: 실제 Telegram Bot Token/Chat ID 환경에서 도착 및 `notification_log` 성공 기록 검증.
+- **2026-05-31 Telegram 실발송 검증 정보 보강** — `TelegramClient`가 dev-placeholder 여부, HTTP 상태 코드, 실패 원인을 담은 상세 결과를 반환하고 `/api/dev/notifications/test` 및 `notification_log.error_message`에 반영. 다음: 실제 환경 변수 설정 후 테스트 API 호출.
 
 ### 2026-05-29 코드 감사 결과 (실측)
 

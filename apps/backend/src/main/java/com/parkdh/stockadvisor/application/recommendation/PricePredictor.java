@@ -38,7 +38,9 @@ public class PricePredictor {
         BigDecimal stopPrice = costAdjustedExitPrice(entryPrice, stopMultiplier, cost).setScale(4, RoundingMode.HALF_UP);
         LocalDate expectedExitAt = "SHORT".equals(term) ? LocalDate.now().plusDays(5) : LocalDate.now().plusMonths(6);
         String pricingMethod = resolvePricingMethod(candidate, history) + "-cost-adjusted";
-        return new PredictedRecommendation(entryPrice, targetPrice, stopPrice, expectedExitAt, pricingMethod);
+        BigDecimal volatilityPercent = volatilityPct.multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP);
+        BigDecimal positionSizingScore = calculatePositionSizingScore(candidate.score(), volatilityPct);
+        return new PredictedRecommendation(entryPrice, targetPrice, stopPrice, expectedExitAt, pricingMethod, volatilityPercent, positionSizingScore);
     }
 
     private List<PriceDailyEntity> getRecentHistory(RecommendationCandidate candidate) {
@@ -140,6 +142,13 @@ public class PricePredictor {
             return BigDecimal.valueOf(0.02);
         }
         return totalAbsMove.divide(BigDecimal.valueOf(count), 8, RoundingMode.HALF_UP).max(BigDecimal.valueOf(0.01)).min(BigDecimal.valueOf(0.08));
+    }
+
+    private BigDecimal calculatePositionSizingScore(Integer score, BigDecimal volatilityPct) {
+        BigDecimal safeVolatility = volatilityPct.max(BigDecimal.valueOf(0.01));
+        BigDecimal scoreScale = BigDecimal.valueOf(Math.max(0, Math.min(100, score == null ? 50 : score)))
+                .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+        return scoreScale.divide(safeVolatility, 8, RoundingMode.HALF_UP);
     }
 
     private BigDecimal targetMultiplier(String term, BigDecimal volatilityPct) {

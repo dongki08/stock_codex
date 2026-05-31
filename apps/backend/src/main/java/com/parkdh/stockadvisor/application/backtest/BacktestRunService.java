@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestRunCreateRequest;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestRunResponse;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestSimulationRequest;
-import com.parkdh.stockadvisor.application.recommendation.RecommendationCandidate;
-import com.parkdh.stockadvisor.application.recommendation.RecommendationEngine;
 import com.parkdh.stockadvisor.domain.backtest.BacktestRunEntity;
 import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.setting.AppSettingEntity;
@@ -26,7 +24,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
@@ -35,7 +32,6 @@ public class BacktestRunService {
     private final BacktestRunRepository backtestRunRepository;
     private final PriceDailyRepository priceDailyRepository;
     private final AppSettingRepository appSettingRepository;
-    private final RecommendationEngine recommendationEngine;
     private final ObjectMapper objectMapper;
 
     public List<BacktestRunResponse> getBacktestRuns() {
@@ -97,37 +93,23 @@ public class BacktestRunService {
     }
 
     private BacktestEvaluation evaluateStrategy(String strategy, String market, BacktestSimulationRequest request, int maxTickers, int holdingDays, BigDecimal targetPct, BigDecimal stopPct) {
-        List<RecommendationCandidate> selectedCandidates = isRecommendationEngineStrategy(strategy)
-                ? recommendationEngine.selectTopCandidates(market, maxTickers)
-                : List.of();
-        Set<String> selectedKeys = selectedCandidates.stream()
-                .map(candidate -> candidate.market() + ":" + candidate.ticker())
-                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
-        if (isRecommendationEngineStrategy(strategy) && selectedKeys.isEmpty()) {
-            throw new CustomException("Recommendation engine did not select candidates for backtest.", 404);
-        }
-
-        List<PriceDailyEntity> prices = findSimulationPrices(market, request).stream()
-                .filter(row -> !isRecommendationEngineStrategy(strategy) || selectedKeys.contains(row.getMarket() + ":" + row.getTicker()))
-                .toList();
+        // TASK-1: selectTopCandidates(현재 시점) 제거 → score 기반 진입으로 교체해 미래참조 차단
+        int minScore = readSettingInt("backtest.entry.minScore", 60);
+        List<PriceDailyEntity> prices = findSimulationPrices(market, request);
         Map<String, List<PriceDailyEntity>> byTicker = prices.stream()
                 .collect(Collectors.groupingBy(row -> row.getMarket() + ":" + row.getTicker(), LinkedHashMap::new, Collectors.toList()));
         List<SimulatedTrade> trades = byTicker.values().stream()
                 .limit(maxTickers)
-                .map(rows -> simulateTicker(rows, holdingDays, targetPct, stopPct, resolveBacktestCost(rows.get(0).getMarket())))
+                .map(rows -> simulateTicker(rows, holdingDays, targetPct, stopPct, resolveBacktestCost(rows.get(0).getMarket()), minScore))
                 .flatMap(List::stream)
                 .toList();
         if (trades.isEmpty()) {
             throw new CustomException("Not enough price data to simulate backtest.", 404);
         }
 
-        String metricsJson = buildMetricsJson(strategy, market, request, maxTickers, holdingDays, targetPct, stopPct, prices.size(), selectedCandidates.size(), trades);
+        String metricsJson = buildMetricsJson(strategy, market, request, maxTickers, holdingDays, targetPct, stopPct, prices.size(), 0, trades);
         BigDecimal metricValue = extractMetric(metricsJson, "avgPnlPct");
         return new BacktestEvaluation(strategy, request.periodFrom(), request.periodTo(), metricsJson, metricValue);
-    }
-
-    private boolean isRecommendationEngineStrategy(String strategy) {
-        return "recommendation-engine-v1".equalsIgnoreCase(strategy);
     }
 
     private List<PriceDailyEntity> findSimulationPrices(String market, BacktestSimulationRequest request) {
@@ -137,16 +119,16 @@ public class BacktestRunService {
         return priceDailyRepository.findByMarketAndTradeDateBetweenOrderByTickerAscTradeDateAsc(market, request.periodFrom(), request.periodTo());
     }
 
-    private List<SimulatedTrade> simulateTicker(List<PriceDailyEntity> rows, int holdingDays, BigDecimal targetPct, BigDecimal stopPct, BacktestCost cost) {
+    private List<SimulatedTrade> simulateTicker(List<PriceDailyEntity> rows, int holdingDays, BigDecimal targetPct, BigDecimal stopPct, BacktestCost cost, int minScore) {
+        // TASK-1: MA20 진입 조건 → score 기반 진입 (과거 윈도우만 사용, 미래참조 없음)
         if (rows.size() < 21) {
             return List.of();
         }
 
         PriceDailyEntity entry = null;
         for (int i = 20; i < rows.size() - 1; i++) {
-            BigDecimal ma20 = averageClose(rows.subList(i - 20, i));
-            PriceDailyEntity row = rows.get(i);
-            if (row.getClosePrice().compareTo(ma20) >= 0) {
+            int score = computePriceScore(rows, i); // rows[0..i] 기반 score 계산 (미래봉 미사용)
+            if (score >= minScore) {
                 entry = rows.get(i + 1);
                 break;
             }
@@ -228,6 +210,88 @@ public class BacktestRunService {
                 || "NASDAQ".equalsIgnoreCase(market)
                 || "NYSE".equalsIgnoreCase(market)
                 || "AMEX".equalsIgnoreCase(market);
+    }
+
+    // TASK-1: 과거 윈도우(rows[0..upTo])만으로 0-100 기술적 score 계산 (미래참조 없음)
+    private int computePriceScore(List<PriceDailyEntity> rows, int upTo) {
+        List<PriceDailyEntity> window = rows.subList(0, upTo + 1);
+        int size = window.size();
+
+        // MA 점수
+        int maScore;
+        if (size >= 20) {
+            BigDecimal close = window.get(size - 1).getClosePrice();
+            BigDecimal ma5 = averageClose(window.subList(size - 5, size));
+            BigDecimal ma20 = averageClose(window.subList(size - 20, size));
+            if (close.compareTo(ma5) >= 0 && ma5.compareTo(ma20) >= 0) maScore = 90;
+            else if (close.compareTo(ma20) >= 0) maScore = 75;
+            else if (close.compareTo(ma20.multiply(BigDecimal.valueOf(0.95))) < 0) maScore = 40;
+            else maScore = 58;
+        } else {
+            maScore = 50;
+        }
+
+        // RSI 점수
+        int rsiScore;
+        if (size >= 15) {
+            List<BigDecimal> closes = window.stream().map(PriceDailyEntity::getClosePrice).toList();
+            int start = closes.size() - 15;
+            BigDecimal gains = BigDecimal.ZERO;
+            BigDecimal losses = BigDecimal.ZERO;
+            for (int i = start + 1; i < closes.size(); i++) {
+                BigDecimal diff = closes.get(i).subtract(closes.get(i - 1));
+                if (diff.compareTo(BigDecimal.ZERO) > 0) gains = gains.add(diff);
+                else losses = losses.add(diff.abs());
+            }
+            BigDecimal rsi;
+            if (losses.compareTo(BigDecimal.ZERO) == 0) rsi = BigDecimal.valueOf(100);
+            else if (gains.compareTo(BigDecimal.ZERO) == 0) rsi = BigDecimal.ZERO;
+            else {
+                BigDecimal rs = gains.divide(losses, 8, java.math.RoundingMode.HALF_UP);
+                rsi = BigDecimal.valueOf(100).subtract(BigDecimal.valueOf(100).divide(BigDecimal.ONE.add(rs), 4, java.math.RoundingMode.HALF_UP));
+            }
+            if (rsi.compareTo(BigDecimal.valueOf(45)) >= 0 && rsi.compareTo(BigDecimal.valueOf(65)) <= 0) rsiScore = 88;
+            else if (rsi.compareTo(BigDecimal.valueOf(35)) >= 0 && rsi.compareTo(BigDecimal.valueOf(75)) <= 0) rsiScore = 72;
+            else if (rsi.compareTo(BigDecimal.valueOf(25)) >= 0 && rsi.compareTo(BigDecimal.valueOf(85)) <= 0) rsiScore = 52;
+            else rsiScore = 32;
+        } else {
+            rsiScore = 50;
+        }
+
+        // 거래량 z-score 점수
+        int volScore;
+        if (size >= 20) {
+            List<BigDecimal> vols = window.subList(size - 20, size).stream().map(PriceDailyEntity::getVolume).toList();
+            BigDecimal latest = vols.get(vols.size() - 1);
+            BigDecimal avg = vols.stream().reduce(BigDecimal.ZERO, BigDecimal::add).divide(BigDecimal.valueOf(vols.size()), 8, java.math.RoundingMode.HALF_UP);
+            double variance = vols.stream().mapToDouble(v -> Math.pow(v.subtract(avg).doubleValue(), 2)).average().orElse(0);
+            BigDecimal stdDev = BigDecimal.valueOf(Math.sqrt(variance));
+            if (stdDev.compareTo(BigDecimal.ZERO) == 0) {
+                volScore = 60;
+            } else {
+                BigDecimal z = latest.subtract(avg).divide(stdDev, 4, java.math.RoundingMode.HALF_UP);
+                if (z.compareTo(BigDecimal.valueOf(1.5)) >= 0) volScore = 90;
+                else if (z.compareTo(BigDecimal.ZERO) >= 0) volScore = 74;
+                else if (z.compareTo(BigDecimal.valueOf(-1.0)) < 0) volScore = 42;
+                else volScore = 58;
+            }
+        } else {
+            volScore = 50;
+        }
+
+        // MA 35%, RSI 35%, Volume 30% 가중 합산
+        return Math.min(100, (int) Math.round(maScore * 0.35 + rsiScore * 0.35 + volScore * 0.30));
+    }
+
+    private int readSettingInt(String key, int defaultValue) {
+        try {
+            Optional<AppSettingEntity> setting = appSettingRepository.findById(key);
+            if (setting.isEmpty()) return defaultValue;
+            JsonNode value = objectMapper.readTree(setting.get().getValueJson()).path("value");
+            return value.isInt() || value.isLong() ? value.intValue() : defaultValue;
+        } catch (Exception exception) {
+            return defaultValue;
+        }
     }
 
     private BigDecimal readSettingDecimal(String key, String field, BigDecimal defaultValue) {

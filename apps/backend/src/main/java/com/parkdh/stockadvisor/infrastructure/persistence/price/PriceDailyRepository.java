@@ -21,4 +21,13 @@ public interface PriceDailyRepository extends JpaRepository<PriceDailyEntity, St
     List<PriceDailyEntity> findByTradeDateBetweenOrderByTickerAscTradeDateAsc(LocalDate from, LocalDate to); // 기간 내 전체 일봉을 종목/거래일 순으로 조회한다.
 
     List<PriceDailyEntity> findByMarketAndTradeDateBetweenOrderByTickerAscTradeDateAsc(String market, LocalDate from, LocalDate to); // 시장과 기간으로 일봉을 종목/거래일 순으로 조회한다.
+
+    // PIT 스냅샷용: asOf 이하 일봉만 조회 (미래참조 차단)
+    List<PriceDailyEntity> findByMarketAndTickerAndTradeDateLessThanEqualOrderByTradeDateDesc(String market, String ticker, LocalDate asOf, Pageable pageable);
+
+    // forward return 계산용: asOf 이후 일봉 오름차순
+    List<PriceDailyEntity> findByMarketAndTickerAndTradeDateGreaterThanOrderByTradeDateAsc(String market, String ticker, LocalDate asOf, Pageable pageable);
+
+    // as_of_date 정확히 일치하는 단건
+    java.util.Optional<PriceDailyEntity> findByMarketAndTickerAndTradeDate(String market, String ticker, LocalDate tradeDate);
 } // 일봉 가격 저장소 인터페이스를 종료한다.

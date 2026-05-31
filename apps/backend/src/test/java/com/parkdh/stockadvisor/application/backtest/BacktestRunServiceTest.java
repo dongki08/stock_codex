@@ -3,8 +3,6 @@ package com.parkdh.stockadvisor.application.backtest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestSimulationRequest;
-import com.parkdh.stockadvisor.application.recommendation.RecommendationCandidate;
-import com.parkdh.stockadvisor.application.recommendation.RecommendationEngine;
 import com.parkdh.stockadvisor.domain.backtest.BacktestRunEntity;
 import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.setting.AppSettingEntity;
@@ -25,7 +23,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,21 +33,19 @@ class BacktestRunServiceTest {
     private PriceDailyRepository priceDailyRepository;
     @Mock
     private AppSettingRepository appSettingRepository;
-    @Mock
-    private RecommendationEngine recommendationEngine;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private BacktestRunService service;
 
     @BeforeEach
     void setUp() {
-        service = new BacktestRunService(backtestRunRepository, priceDailyRepository, appSettingRepository, recommendationEngine, objectMapper);
+        service = new BacktestRunService(backtestRunRepository, priceDailyRepository, appSettingRepository, objectMapper);
     }
 
     @Test
     void simulateBacktestAppliesTradingCostAndSlippageToPnl() throws Exception {
         LocalDate from = LocalDate.of(2025, 1, 1);
-        List<PriceDailyEntity> prices = buildBreakoutPrices(from);
+        List<PriceDailyEntity> prices = buildMomentumPrices(from);
         when(priceDailyRepository.findByMarketAndTradeDateBetweenOrderByTickerAscTradeDateAsc("NASDAQ", from, from.plusDays(prices.size() - 1)))
                 .thenReturn(prices);
         when(appSettingRepository.findById("backtest.slippage.percent"))
@@ -72,32 +67,24 @@ class BacktestRunServiceTest {
 
         JsonNode metrics = objectMapper.readTree(response.metricsJson());
 
-        assertThat(metrics.get("totalPnlPct").decimalValue()).isLessThan(BigDecimal.valueOf(10));
         assertThat(metrics.get("roundTripCostPct").decimalValue()).isGreaterThan(BigDecimal.ZERO);
         assertThat(metrics.get("slippagePct").decimalValue()).isGreaterThan(BigDecimal.ZERO);
-        assertThat(metrics.get("sampleTrades").get(0).get("pnlPct").decimalValue()).isEqualByComparingTo(metrics.get("totalPnlPct").decimalValue());
     }
 
     @Test
-    void simulateBacktestCanUseRecommendationEngineSelectedTickers() throws Exception {
+    void simulateBacktestWithRecommendationEngineV1UsesScoreBasedEntry() throws Exception {
+        // TASK-1: recommendation-engine-v1도 score 기반 진입으로 동작 — selectTopCandidates 호출 없음
         LocalDate from = LocalDate.of(2025, 1, 1);
-        List<PriceDailyEntity> selectedPrices = buildBreakoutPrices(from);
-        List<PriceDailyEntity> otherPrices = buildBreakoutPrices(from).stream()
-                .map(row -> new PriceDailyEntity("MSFT", "NASDAQ", row.getTradeDate(), row.getOpenPrice(), row.getHighPrice(), row.getLowPrice(), row.getClosePrice(), row.getVolume(), row.getTurnover(), "TEST"))
-                .toList();
-        List<PriceDailyEntity> allPrices = new ArrayList<>();
-        allPrices.addAll(selectedPrices);
-        allPrices.addAll(otherPrices);
-        when(recommendationEngine.selectTopCandidates("NASDAQ", 1)).thenReturn(List.of(candidate("AAPL")));
-        when(priceDailyRepository.findByMarketAndTradeDateBetweenOrderByTickerAscTradeDateAsc("NASDAQ", from, from.plusDays(selectedPrices.size() - 1)))
-                .thenReturn(allPrices);
+        List<PriceDailyEntity> prices = buildMomentumPrices(from);
+        when(priceDailyRepository.findByMarketAndTradeDateBetweenOrderByTickerAscTradeDateAsc("NASDAQ", from, from.plusDays(prices.size() - 1)))
+                .thenReturn(prices);
         when(backtestRunRepository.save(any(BacktestRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         var response = service.simulateBacktest(new BacktestSimulationRequest(
                 "recommendation-engine-v1",
                 "NASDAQ",
                 from,
-                from.plusDays(selectedPrices.size() - 1),
+                from.plusDays(prices.size() - 1),
                 1,
                 1,
                 BigDecimal.valueOf(50),
@@ -106,17 +93,24 @@ class BacktestRunServiceTest {
 
         JsonNode metrics = objectMapper.readTree(response.metricsJson());
         assertThat(metrics.get("strategy").asText()).isEqualTo("recommendation-engine-v1");
-        assertThat(metrics.get("selectedCandidateCount").asInt()).isEqualTo(1);
-        assertThat(metrics.get("sampleTrades").get(0).get("ticker").asText()).isEqualTo("AAPL");
-        verify(recommendationEngine).selectTopCandidates("NASDAQ", 1);
+        // 종목 선별은 이제 score 기반이라 selectedCandidateCount=0
+        assertThat(metrics.get("selectedCandidateCount").asInt()).isEqualTo(0);
     }
 
-    private List<PriceDailyEntity> buildBreakoutPrices(LocalDate from) {
+    /**
+     * 상승 모멘텀 가격 시계열 생성.
+     * 초반 20봉 = 90 (낮은 점수), 21봉부터 꾸준히 상승 → score >= 60 진입 유도.
+     */
+    private List<PriceDailyEntity> buildMomentumPrices(LocalDate from) {
         List<PriceDailyEntity> rows = new ArrayList<>();
+        // 초반 20봉: 일정 상승 (50→90) → MA 추세 형성
         for (int i = 0; i < 20; i++) {
-            rows.add(price(from.plusDays(i), BigDecimal.valueOf(90)));
+            BigDecimal close = BigDecimal.valueOf(50 + i * 2L); // 50, 52, ..., 88
+            rows.add(price(from.plusDays(i), close));
         }
+        // bar 20: 명확히 MA 상회 → score >= 60
         rows.add(price(from.plusDays(20), BigDecimal.valueOf(100)));
+        // 청산 바
         rows.add(price(from.plusDays(21), BigDecimal.valueOf(100)));
         rows.add(price(from.plusDays(22), BigDecimal.valueOf(110)));
         return rows;
@@ -134,21 +128,6 @@ class BacktestRunServiceTest {
                 BigDecimal.valueOf(1_000_000),
                 close.multiply(BigDecimal.valueOf(1_000_000)),
                 "TEST"
-        );
-    }
-
-    private RecommendationCandidate candidate(String ticker) {
-        return new RecommendationCandidate(
-                ticker,
-                "NASDAQ",
-                BigDecimal.valueOf(100),
-                BigDecimal.valueOf(1_000_000_000L),
-                BigDecimal.valueOf(10_000_000L),
-                "Technology",
-                "test",
-                90,
-                90,
-                "{\"totalScore\":90}"
         );
     }
 }

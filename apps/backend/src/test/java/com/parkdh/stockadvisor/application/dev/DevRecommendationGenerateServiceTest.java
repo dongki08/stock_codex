@@ -104,6 +104,47 @@ class DevRecommendationGenerateServiceTest {
     }
 
     @Test
+    void generateNormalizesPositionWeightsByConfidenceAndInverseVolatility() {
+        List<RecommendationCandidate> candidates = List.of(
+                candidate("AAA", 90),
+                candidate("BBB", 70),
+                candidate("CCC", 70),
+                candidate("DDD", 70),
+                candidate("EEE", 70),
+                candidate("FFF", 70)
+        );
+        when(recommendationEngine.selectTopCandidates("NASDAQ", 18)).thenReturn(candidates);
+        when(pricePredictor.predict(candidates.get(0), "SHORT")).thenReturn(predicted("AAA", 1, 5));
+        when(pricePredictor.predict(candidates.get(1), "SHORT")).thenReturn(predicted("BBB", 5, 1));
+        when(pricePredictor.predict(candidates.get(2), "SHORT")).thenReturn(predicted("CCC", 5, 1));
+        when(pricePredictor.predict(candidates.get(3), "SHORT")).thenReturn(predicted("DDD", 5, 1));
+        when(pricePredictor.predict(candidates.get(4), "SHORT")).thenReturn(predicted("EEE", 5, 1));
+        when(pricePredictor.predict(candidates.get(5), "SHORT")).thenReturn(predicted("FFF", 5, 1));
+        when(pricePredictor.predict(candidates.get(0), "LONG")).thenReturn(predicted("AAA", 1, 5));
+        when(confidenceService.estimateConfidence("NASDAQ", "SHORT", 90)).thenReturn(100);
+        when(confidenceService.estimateConfidence("NASDAQ", "SHORT", 70)).thenReturn(100);
+        when(confidenceService.estimateConfidence("NASDAQ", "LONG", 90)).thenReturn(100);
+        when(strategyVersionRepository.findByChampion(true)).thenReturn(List.of());
+        when(predictionRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(recommendationRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.generate("NASDAQ", 6, 1);
+
+        ArgumentCaptor<Iterable<RecommendationEntity>> captor = ArgumentCaptor.forClass(Iterable.class);
+        verify(recommendationRepository, org.mockito.Mockito.times(2)).saveAll(captor.capture());
+        List<RecommendationEntity> shortRecommendations = toList(captor.getAllValues().get(0));
+
+        assertThat(shortRecommendations.get(0).getSignalsJson())
+                .contains("\"volatilityPct\":1")
+                .contains("\"positionSizingScore\":5")
+                .contains("\"positionWeightPct\":20.00");
+        assertThat(shortRecommendations.get(1).getSignalsJson())
+                .contains("\"volatilityPct\":5")
+                .contains("\"positionSizingScore\":1")
+                .contains("\"positionWeightPct\":10.00");
+    }
+
+    @Test
     void generateSkipsCandidateWhenPriceDataIsUnavailable() {
         RecommendationCandidate noPrice = new RecommendationCandidate(
                 "NO_PRICE",
@@ -205,5 +246,38 @@ class DevRecommendationGenerateServiceTest {
                 })
                 .toList();
         assertThat(recommendations).extracting(RecommendationEntity::getModelVersion).containsExactly("v1.2.0", "v1.2.0");
+    }
+
+    private RecommendationCandidate candidate(String ticker, int score) {
+        return new RecommendationCandidate(
+                ticker,
+                "NASDAQ",
+                BigDecimal.valueOf(123),
+                BigDecimal.valueOf(1_000_000_000L),
+                BigDecimal.valueOf(10_000_000L),
+                "Technology",
+                "market_universe",
+                score,
+                80,
+                "{\"totalScore\":" + score + "}"
+        );
+    }
+
+    private PredictedRecommendation predicted(String ticker, int volatilityPct, int positionSizingScore) {
+        return new PredictedRecommendation(
+                BigDecimal.valueOf(123),
+                BigDecimal.valueOf(130),
+                BigDecimal.valueOf(118),
+                LocalDate.now().plusDays(5),
+                "position-sizing-test-" + ticker,
+                BigDecimal.valueOf(volatilityPct),
+                BigDecimal.valueOf(positionSizingScore)
+        );
+    }
+
+    private List<RecommendationEntity> toList(Iterable<RecommendationEntity> iterable) {
+        java.util.ArrayList<RecommendationEntity> rows = new java.util.ArrayList<>();
+        iterable.forEach(rows::add);
+        return rows;
     }
 }

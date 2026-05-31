@@ -5,6 +5,7 @@ import com.parkdh.stockadvisor.api.notification.dto.NotificationLogResponse; // 
 import com.parkdh.stockadvisor.domain.notification.NotificationLogEntity; // 알림 로그 엔티티를 가져온다.
 import com.parkdh.stockadvisor.global.exception.CustomException; // 커스텀 예외를 가져온다.
 import com.parkdh.stockadvisor.infrastructure.notification.TelegramClient; // Telegram 클라이언트를 가져온다.
+import com.parkdh.stockadvisor.infrastructure.notification.TelegramClient.TelegramSendResult; // Telegram 전송 상세 결과를 가져온다.
 import com.parkdh.stockadvisor.infrastructure.persistence.notification.NotificationLogRepository; // 알림 로그 저장소를 가져온다.
 import jakarta.transaction.Transactional; // 쓰기 트랜잭션 어노테이션을 가져온다.
 import lombok.RequiredArgsConstructor; // 생성자 주입 어노테이션을 가져온다.
@@ -48,15 +49,15 @@ public class NotificationLogService { // 알림 로그 서비스를 정의한다
         if (notificationLogRepository.existsByChannelAndPayloadHashAndStatus("TELEGRAM", payloadHash, "SENT")) { // 이미 성공 발송된 알림인지 확인한다.
             return new NotificationDispatchResult(false, true, payloadHash); // 중복으로 스킵했음을 반환한다.
         } // 중복 확인을 종료한다.
-        boolean sent = telegramClient.sendMessage(message); // Telegram 메시지를 전송한다.
+        TelegramSendResult sendResult = telegramClient.sendMessageWithResult(message); // Telegram 메시지를 전송한다.
         notificationLogRepository.save(new NotificationLogEntity(
                 "TELEGRAM",
                 payloadHash,
-                sent ? LocalDateTime.now() : null,
-                sent ? "SENT" : "FAILED",
-                sent ? null : "Telegram sendMessage returned false"
+                sendResult.sent() ? LocalDateTime.now() : null,
+                sendResult.sent() ? "SENT" : "FAILED",
+                sendResult.sent() ? null : sendResult.errorMessage()
         )); // 전송 결과를 알림 로그로 저장한다.
-        return new NotificationDispatchResult(sent, false, payloadHash); // 전송 결과를 반환한다.
+        return new NotificationDispatchResult(sendResult.sent(), false, payloadHash); // 전송 결과를 반환한다.
     } // Telegram 단발 알림 전송을 종료한다.
 
     private NotificationLogResponse toResponse(NotificationLogEntity entity) { // 알림 로그 엔티티를 응답 DTO로 변환한다.

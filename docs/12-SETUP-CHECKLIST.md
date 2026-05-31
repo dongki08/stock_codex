@@ -87,6 +87,14 @@ $env:SEC_USER_AGENT="StockAdvisor/1.0 your-email@example.com"
 
 SEC EDGAR는 명확한 User-Agent를 요구하므로 `SEC_USER_AGENT`에는 본인이 확인 가능한 이메일을 넣는 것이 좋다.
 
+Telegram 실발송 검증은 백엔드 실행 후 아래 API로 확인한다.
+
+```http
+POST /api/dev/notifications/test?message=Stock%20Advisor%20Telegram%20test
+```
+
+응답의 `devMode=false`, `sent=true`, `errorMessage=null`이면 실제 발송 성공이다. 실패 시 `errorMessage`에 토큰/Chat ID 누락 또는 Telegram API HTTP 오류가 남고, 같은 내용이 `notification_log.error_message`에 저장된다.
+
 ### 3. 백엔드 실행
 
 ```bat

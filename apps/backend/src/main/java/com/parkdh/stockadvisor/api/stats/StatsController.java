@@ -1,6 +1,7 @@
 package com.parkdh.stockadvisor.api.stats;
 
 import com.parkdh.stockadvisor.api.stats.dto.StatsDailyResponse;
+import com.parkdh.stockadvisor.api.stats.dto.StatsPaperTradingResponse;
 import com.parkdh.stockadvisor.api.stats.dto.StatsSummaryResponse;
 import com.parkdh.stockadvisor.api.stats.dto.StatsStrategyResponse;
 import com.parkdh.stockadvisor.application.stats.StatsService;
@@ -31,5 +32,10 @@ public class StatsController {
     @GetMapping("/by-strategy")
     public ResultDto<List<StatsStrategyResponse>> getByStrategy() {
         return ResultDto.success(statsService.getByStrategy());
+    }
+
+    @GetMapping("/paper-trading")
+    public ResultDto<StatsPaperTradingResponse> getPaperTrading() {
+        return ResultDto.success(statsService.getPaperTrading());
     }
 }

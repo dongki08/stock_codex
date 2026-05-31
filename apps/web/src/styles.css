@@ -812,6 +812,10 @@ textarea {
   margin-bottom: 28px;
 }
 
+.stats-cards-compact {
+  margin-bottom: 18px;
+}
+
 .stat-card {
   background: #ffffff;
   border: 1px solid #d8e2ee;
@@ -932,4 +936,10 @@ textarea {
   font-weight: 600;
   color: #445566;
   font-size: 13px;
+}
+
+.table-subtle {
+  color: #66788a;
+  font-size: 12px;
+  margin-top: 3px;
 }

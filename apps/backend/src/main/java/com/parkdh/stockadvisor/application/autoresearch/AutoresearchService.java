@@ -10,6 +10,7 @@ import com.parkdh.stockadvisor.api.autoresearch.dto.StrategyVersionCreateRequest
 import com.parkdh.stockadvisor.api.autoresearch.dto.StrategyVersionResponse; // 전략 버전 응답 DTO를 가져온다.
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestSimulationRequest; // 백테스트 시뮬레이션 요청 DTO를 가져온다.
 import com.parkdh.stockadvisor.application.backtest.BacktestRunService; // 백테스트 서비스를 가져온다.
+import com.parkdh.stockadvisor.application.research.FeatureICService; // 피처 IC 측정 서비스를 가져온다.
 import com.parkdh.stockadvisor.domain.autoresearch.AutoresearchRunEntity; // AutoResearch 실행 엔티티를 가져온다.
 import com.parkdh.stockadvisor.domain.autoresearch.StrategyVersionEntity; // 전략 버전 엔티티를 가져온다.
 import com.parkdh.stockadvisor.domain.audit.AuditLogEntity; // 감사 로그 엔티티를 가져온다.
@@ -70,6 +71,7 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
     private final RecommendationRepository recommendationRepository; // 추천 저장소 의존성을 보관한다.
     private final EvaluationRepository evaluationRepository; // 평가 저장소 의존성을 보관한다.
     private final BacktestRunService backtestRunService; // 백테스트 서비스 의존성을 보관한다.
+    private final FeatureICService featureICService; // 피처 IC 측정 서비스 의존성을 보관한다.
     private final ObjectMapper objectMapper; // JSON 도구 의존성을 보관한다.
 
     public List<AutoresearchRunResponse> getRuns(UUID jobRunId) { // AutoResearch 실행 목록을 조회한다.
@@ -137,7 +139,8 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
         boolean promoted = false; // 승격 여부를 보관한다.
         for (int iterNo = 1; iterNo <= iterations; iterNo++) { // 요청된 반복 횟수만큼 실행한다.
             LocalDateTime startedAt = LocalDateTime.now(); // 시작 시각을 기록한다.
-            String proposalJson = mutateWeights(originalWeightsJson, iterNo); // 후보 가중치를 생성한다.
+            FeatureICService.MutationGuide mutationGuide = featureICService.guideForIteration(iterNo, MUTATION_PATHS); // IC 기반 변형 가이드를 생성한다.
+            String proposalJson = mutateWeights(originalWeightsJson, mutationGuide); // 후보 가중치를 생성한다.
             String proposalSha = hash(proposalJson); // 후보 해시를 생성한다.
             try { // 단일 실험 실패를 기록하고 다음 실험으로 진행한다.
                 saveWeights(proposalJson); // 후보 가중치를 적용한다.
@@ -155,7 +158,7 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
                         iterNo,
                         parentSha,
                         proposalSha,
-                        "scoring weights mutation: " + mutationPath(iterNo),
+                        mutationGuide.summary(),
                         "avgPnlPct",
                         metricValue,
                         championMetric,
@@ -389,14 +392,14 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
         } // 예외 처리를 종료한다.
     } // YAML app_setting JSON 생성을 종료한다.
 
-    private String mutateWeights(String sourceJson, int iterNo) { // 가중치 JSON을 변형한다.
+    private String mutateWeights(String sourceJson, FeatureICService.MutationGuide mutationGuide) { // 가중치 JSON을 변형한다.
         try { // JSON 파싱 실패를 처리한다.
             ObjectNode root = (ObjectNode) objectMapper.readTree(sourceJson).deepCopy(); // 원본 JSON을 복사한다.
-            String path = mutationPath(iterNo); // 이번 반복에서 바꿀 경로를 결정한다.
+            String path = mutationGuide.weightPath(); // 이번 반복에서 바꿀 경로를 결정한다.
             String[] parts = path.split("\\."); // 경로를 분리한다.
             ObjectNode parent = (ObjectNode) root.path(parts[0]); // 부모 노드를 조회한다.
             BigDecimal current = parent.path(parts[1]).isNumber() ? parent.path(parts[1]).decimalValue() : BigDecimal.valueOf(0.1); // 현재 가중치를 읽는다.
-            BigDecimal factor = iterNo % 2 == 0 ? BigDecimal.valueOf(0.90) : BigDecimal.valueOf(1.10); // 홀수는 증액, 짝수는 감액한다.
+            BigDecimal factor = mutationGuide.factor(); // IC 방향에 따른 증감 배율을 가져온다.
             parent.put(parts[1], current.multiply(factor)); // 변형 가중치를 저장한다.
             normalizeWeightGroup((ObjectNode) root.path("value")); // 종합 가중치 합을 1로 정규화한다.
             normalizeWeightGroup((ObjectNode) root.path("technical")); // 기술 가중치 합을 1로 정규화한다.
@@ -421,10 +424,6 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
             node.put(fieldName, value.divide(sum, 6, RoundingMode.HALF_UP)); // 합 1 기준 값으로 저장한다.
         } // 필드 순회를 종료한다.
     } // 가중치 그룹 정규화를 종료한다.
-
-    private String mutationPath(int iterNo) { // 반복 번호에 해당하는 가중치 경로를 반환한다.
-        return MUTATION_PATHS.get((iterNo - 1) % MUTATION_PATHS.size()); // 순환 경로를 반환한다.
-    } // 변형 경로 반환을 종료한다.
 
     private Integer durationMs(LocalDateTime startedAt) { // 소요 시간을 밀리초로 계산한다.
         return Math.toIntExact(Math.min(Integer.MAX_VALUE, Duration.between(startedAt, LocalDateTime.now()).toMillis())); // int 범위로 제한해 반환한다.

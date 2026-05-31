@@ -644,6 +644,31 @@ Validation:
 | payloadHash | 필수 |
 | status | 필수 |
 
+### 8.4 Telegram 테스트 발송
+
+```http
+POST /api/dev/notifications/test?message=Stock%20Advisor%20Telegram%20test
+```
+
+Response:
+
+```json
+{
+  "code": 200,
+  "data": {
+    "sent": true,
+    "devMode": false,
+    "statusCode": 200,
+    "errorMessage": null,
+    "message": "Stock Advisor Telegram test",
+    "logId": 10
+  },
+  "error_message": null
+}
+```
+
+`devMode=true`이면 `TELEGRAM_BOT_TOKEN=dev-placeholder` 로그 출력 모드다. 실제 발송 검증은 `devMode=false`, `sent=true`, `errorMessage=null`을 기준으로 본다. 실패 시 `errorMessage`에는 토큰/Chat ID 누락, Telegram API HTTP 오류, 네트워크 오류가 저장되고 같은 값이 `notification_log.error_message`에 남는다.
+
 ## 9. Codex 호출 로그 API
 
 Codex CLI 호출 이력을 저장하고 조회한다. 프롬프트 원문은 저장하지 않고 해시와 길이만 저장하는 계약이다.
@@ -913,7 +938,45 @@ Validation:
 | `DART_API_KEY` | 한국 DART 공시 수집용. 없으면 DART 동기화는 빈 결과를 반환 |
 | `SEC_USER_AGENT` | SEC EDGAR 요청 User-Agent |
 
-## 13. 프론트 연동 권장 순서
+## 13. 통계 API
+
+종료 추천의 사후 성과와 OPEN 추천의 페이퍼트레이딩 미실현 손익을 조회한다.
+
+Base URL:
+
+```text
+/api/stats
+```
+
+| Method | URL | 설명 |
+|---|---|---|
+| GET | `/api/stats/summary` | 전체/종료/진행/만료 개수, hit rate, 평균/누적 손익률, MDD 조회 |
+| GET | `/api/stats/daily` | 일별 평가 손익과 누적 손익 조회 |
+| GET | `/api/stats/by-strategy` | 전략 버전별 평가 성과 조회 |
+| GET | `/api/stats/paper-trading` | OPEN 추천의 최신 일봉 기준 미실현 손익과 비중 반영 손익 조회 |
+
+### 13.1 페이퍼트레이딩 모니터링
+
+```http
+GET /api/stats/paper-trading
+```
+
+응답 `data` 주요 필드:
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| openCount | Integer | OPEN 추천 수 |
+| pricedCount | Integer | 최신 `price_daily` 종가가 있어 계산 가능한 추천 수 |
+| avgUnrealizedPnlPct | Decimal | 단순 평균 미실현 손익률 |
+| weightedUnrealizedPnlPct | Decimal | `signalsJson.positionWeightPct`를 반영한 미실현 포트폴리오 손익률 |
+| totalWeightPct | Decimal | 계산 가능한 추천의 총 비중 |
+| targetTouchCount | Integer | 최신 종가가 목표가 이상인 추천 수 |
+| stopTouchCount | Integer | 최신 종가가 손절가 이하인 추천 수 |
+| positions | Array | 추천별 현재가, 거래일, 비중, 손익률, 목표/손절 이격률, 가격 상태 |
+
+`positionWeightPct`가 없는 과거 추천은 동일가중 fallback을 사용하되 종목당 20% 상한을 적용한다. 최신 가격이 없으면 해당 포지션은 `priceStatus=NO_PRICE`로 내려가고 요약 손익 계산에서는 제외된다.
+
+## 14. 프론트 연동 권장 순서
 
 관리자 UI는 API 계약을 기준으로 다음 순서로 붙이는 것을 권장한다.
 
@@ -923,9 +986,10 @@ Validation:
 4. `GET /api/instruments`로 개발용/수동 보정 종목 관리
 5. `GET /api/recommendations`로 오늘의 추천/이력 화면 구성
 6. `GET /api/evaluations`로 추천 성과 화면 구성
-7. `GET /api/backtests`, `GET /api/autoresearch/strategies`로 백테스트/전략 탭 구성
+7. `GET /api/stats/paper-trading`으로 OPEN 추천 페이퍼트레이딩 상태 구성
+8. `GET /api/backtests`, `GET /api/autoresearch/strategies`로 백테스트/전략 탭 구성
 
-## 14. 현재 구현 범위와 다음 구현 대상
+## 15. 현재 구현 범위와 다음 구현 대상
 
 현재 구현된 범위:
 

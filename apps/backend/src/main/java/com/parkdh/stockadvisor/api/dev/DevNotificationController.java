@@ -1,11 +1,10 @@
 package com.parkdh.stockadvisor.api.dev;
 
 import com.parkdh.stockadvisor.api.dev.dto.DevNotificationTestResponse;
-import com.parkdh.stockadvisor.config.TelegramProperties;
 import com.parkdh.stockadvisor.domain.notification.NotificationLogEntity;
 import com.parkdh.stockadvisor.global.dto.ResultDto;
-import com.parkdh.stockadvisor.global.util.MarketUtil;
 import com.parkdh.stockadvisor.infrastructure.notification.TelegramClient;
+import com.parkdh.stockadvisor.infrastructure.notification.TelegramClient.TelegramSendResult;
 import com.parkdh.stockadvisor.infrastructure.persistence.notification.NotificationLogRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.transaction.Transactional;
@@ -26,7 +25,6 @@ import java.util.HexFormat;
 @RequestMapping("/api/dev/notifications")
 public class DevNotificationController {
     private final TelegramClient telegramClient;
-    private final TelegramProperties telegramProperties;
     private final NotificationLogRepository notificationLogRepository;
 
     @Operation(summary = "Telegram 알림 테스트 발송",
@@ -35,13 +33,18 @@ public class DevNotificationController {
     @PostMapping("/test")
     public ResultDto<DevNotificationTestResponse> test(
             @RequestParam(required = false, defaultValue = "Stock Advisor 알림 테스트 메시지입니다.") String message) {
-        boolean devMode = MarketUtil.isDevPlaceholder(telegramProperties.botToken());
-        boolean sent = telegramClient.sendMessage(message);
-        String status = sent ? "SENT" : "FAILED";
-        String errorMessage = sent ? null : "전송 실패";
+        TelegramSendResult sendResult = telegramClient.sendMessageWithResult(message);
+        String status = sendResult.sent() ? "SENT" : "FAILED";
         NotificationLogEntity log = notificationLogRepository.save(
-                new NotificationLogEntity("TELEGRAM", hashText(message), LocalDateTime.now(), status, errorMessage));
-        return ResultDto.success(new DevNotificationTestResponse(sent, devMode, message, log.getId()));
+                new NotificationLogEntity("TELEGRAM", hashText(message), sendResult.sent() ? LocalDateTime.now() : null, status, sendResult.errorMessage()));
+        return ResultDto.success(new DevNotificationTestResponse(
+                sendResult.sent(),
+                sendResult.devMode(),
+                sendResult.statusCode(),
+                sendResult.errorMessage(),
+                message,
+                log.getId()
+        ));
     }
 
     private String hashText(String text) {

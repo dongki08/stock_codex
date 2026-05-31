@@ -1,6 +1,7 @@
 package com.parkdh.stockadvisor.application.recommendation;
 
 import com.parkdh.stockadvisor.global.exception.CustomException;
+import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.setting.AppSettingEntity;
 import com.parkdh.stockadvisor.infrastructure.persistence.price.PriceDailyRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
@@ -12,6 +13,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -80,6 +83,46 @@ class PricePredictorTest {
 
         assertThat(predicted.entryPrice()).isEqualByComparingTo("123.4568");
         assertThat(predicted.pricingMethod()).isEqualTo("last-price-v1-cost-adjusted");
+        assertThat(predicted.volatilityPct()).isEqualByComparingTo("2.0000");
+        assertThat(predicted.positionSizingScore()).isEqualByComparingTo("40.00000000");
+    }
+
+    @Test
+    void predictGivesHigherSizingScoreToLowerVolatilityCandidate() {
+        RecommendationCandidate lowVolatility = new RecommendationCandidate(
+                "LOW",
+                "NASDAQ",
+                BigDecimal.valueOf(100),
+                null,
+                null,
+                "Technology",
+                "market_universe",
+                80,
+                60,
+                "{}"
+        );
+        RecommendationCandidate highVolatility = new RecommendationCandidate(
+                "HIGH",
+                "NASDAQ",
+                BigDecimal.valueOf(100),
+                null,
+                null,
+                "Technology",
+                "market_universe",
+                80,
+                60,
+                "{}"
+        );
+        when(priceDailyRepository.findByMarketAndTickerOrderByTradeDateDesc("NASDAQ", "LOW", PageRequest.of(0, 20)))
+                .thenReturn(history("LOW", List.of(100, 101, 100, 101, 100, 101)));
+        when(priceDailyRepository.findByMarketAndTickerOrderByTradeDateDesc("NASDAQ", "HIGH", PageRequest.of(0, 20)))
+                .thenReturn(history("HIGH", List.of(100, 108, 100, 108, 100, 108)));
+
+        PredictedRecommendation low = pricePredictor.predict(lowVolatility, "SHORT");
+        PredictedRecommendation high = pricePredictor.predict(highVolatility, "SHORT");
+
+        assertThat(low.volatilityPct()).isLessThan(high.volatilityPct());
+        assertThat(low.positionSizingScore()).isGreaterThan(high.positionSizingScore());
     }
 
     @Test
@@ -108,5 +151,26 @@ class PricePredictorTest {
         assertThat(predicted.targetPrice()).isGreaterThan(BigDecimal.valueOf(105));
         assertThat(predicted.stopPrice()).isGreaterThan(BigDecimal.valueOf(97));
         assertThat(predicted.pricingMethod()).isEqualTo("last-price-v1-cost-adjusted");
+    }
+
+    private List<PriceDailyEntity> history(String ticker, List<Integer> closes) {
+        List<PriceDailyEntity> rows = new ArrayList<>();
+        LocalDate start = LocalDate.of(2026, 1, 1);
+        for (int i = closes.size() - 1; i >= 0; i--) {
+            BigDecimal close = BigDecimal.valueOf(closes.get(i));
+            rows.add(new PriceDailyEntity(
+                    ticker,
+                    "NASDAQ",
+                    start.plusDays(i),
+                    close,
+                    close.add(BigDecimal.ONE),
+                    close.subtract(BigDecimal.ONE),
+                    close,
+                    BigDecimal.valueOf(1_000_000),
+                    close.multiply(BigDecimal.valueOf(1_000_000)),
+                    "TEST"
+            ));
+        }
+        return rows;
     }
 }

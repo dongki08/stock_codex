@@ -156,6 +156,35 @@ public class MarketDataSyncService { // 시장 데이터 동기화 서비스를 
                 }); // 후보군 갱신을 종료한다.
     } // 후보군 최근 가격 갱신을 종료한다.
 
+    // TASK-8: 지수 일봉 적재 — regime 필터가 참조하는 KOSPI·SPY 인덱스 적재
+    @Transactional
+    public int syncIndexDailyPrices(int days) { // 지수 일봉 데이터를 동기화하고 저장 건수를 반환한다.
+        LocalDate to = LocalDate.now(); // 종료일을 오늘로 정한다.
+        LocalDate from = to.minusDays(days); // 시작일을 조회 기간 기준으로 정한다.
+        int saved = 0; // 저장 건수를 초기화한다.
+        // KOSPI 지수: Stooq ^ks11 → market=KOSPI, ticker=KOSPI
+        try {
+            List<StooqQuoteClient.StooqDailyPrice> kosprices = stooqQuoteClient.fetchDailyPricesByStooqSymbol("^ks11", "KOSPI", from, to, days);
+            for (StooqQuoteClient.StooqDailyPrice p : kosprices) {
+                upsertDailyPrice(new DailyPriceRow("KOSPI", "KOSPI", p.tradeDate(), p.openPrice(), p.highPrice(), p.lowPrice(), p.closePrice(), p.volume(), p.turnover(), "STOOQ_INDEX"));
+                saved++;
+            }
+        } catch (Exception e) {
+            // 지수 조회 실패는 non-fatal — 로그 레벨에서 처리
+        }
+        // SPY: Stooq spy.us → market=NASDAQ, ticker=SPY
+        try {
+            List<StooqQuoteClient.StooqDailyPrice> spyPrices = stooqQuoteClient.fetchDailyPricesByStooqSymbol("spy.us", "SPY", from, to, days);
+            for (StooqQuoteClient.StooqDailyPrice p : spyPrices) {
+                upsertDailyPrice(new DailyPriceRow("SPY", "NASDAQ", p.tradeDate(), p.openPrice(), p.highPrice(), p.lowPrice(), p.closePrice(), p.volume(), p.turnover(), "STOOQ_INDEX"));
+                saved++;
+            }
+        } catch (Exception e) {
+            // 지수 조회 실패는 non-fatal
+        }
+        return saved; // 저장 건수를 반환한다.
+    } // 지수 일봉 동기화를 종료한다.
+
     private int normalizeLimit(Integer value, int defaultValue, int maxValue, String label) { // 정수 파라미터를 정규화한다.
         int normalized = value == null ? defaultValue : value; // 값이 없으면 기본값을 사용한다.
         if (normalized < 1 || normalized > maxValue) { // 허용 범위를 벗어났는지 확인한다.

@@ -37,16 +37,22 @@ public class StooqQuoteClient { // Stooq 시세 클라이언트를 정의한다.
 
     public List<StooqDailyPrice> fetchDailyPrices(String ticker, LocalDate from, LocalDate to, int maxRows) { // 단일 미국 종목 일봉을 조회한다.
         String stooqSymbol = ticker.toLowerCase() + ".us"; // Stooq 미국 심볼 형식으로 변환한다.
+        return fetchDailyPricesByStooqSymbol(stooqSymbol, ticker, from, to, maxRows); // 심볼로 일봉을 조회한다.
+    } // 단일 미국 종목 일봉 조회를 종료한다.
+
+    // TASK-8: 지수 등 커스텀 Stooq 심볼(^ks11, spy.us 등)로 일봉을 조회한다.
+    public List<StooqDailyPrice> fetchDailyPricesByStooqSymbol(String stooqSymbol, String storageTicker, LocalDate from, LocalDate to, int maxRows) { // 지정 Stooq 심볼로 일봉을 조회한다.
         String encodedSymbol = URLEncoder.encode(stooqSymbol, StandardCharsets.UTF_8); // 심볼을 URL 인코딩한다.
         DateTimeFormatter formatter = DateTimeFormatter.BASIC_ISO_DATE; // Stooq 날짜 파라미터 포맷을 준비한다.
         String url = "https://stooq.com/q/d/l/?s=" + encodedSymbol + "&d1=" + formatter.format(from) + "&d2=" + formatter.format(to) + "&i=d"; // Stooq 일봉 CSV URL을 만든다.
         String body = fetchText(url); // CSV 본문을 조회한다.
-        return parseDailyPrices(body, ticker).stream()
+        return parseDailyPrices(body, storageTicker).stream()
+                .map(p -> new StooqDailyPrice(storageTicker, p.tradeDate(), p.openPrice(), p.highPrice(), p.lowPrice(), p.closePrice(), p.volume(), p.turnover())) // 저장용 티커로 교체한다.
                 .sorted(Comparator.comparing(StooqDailyPrice::tradeDate).reversed()) // 최근 거래일 순으로 정렬한다.
                 .limit(maxRows) // 요청한 최대 개수만 남긴다.
                 .sorted(Comparator.comparing(StooqDailyPrice::tradeDate)) // 저장 전 오래된 거래일부터 정렬한다.
                 .toList(); // 목록으로 수집한다.
-    } // 단일 미국 종목 일봉 조회를 종료한다.
+    } // 지정 Stooq 심볼 일봉 조회를 종료한다.
 
     private String fetchText(String url) { // 텍스트 응답을 조회한다.
         HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(15)).GET().build(); // GET 요청을 만든다.

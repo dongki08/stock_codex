@@ -2,8 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import {
   fetchStatsByStrategy,
   fetchStatsDaily,
+  fetchStatsPaperTrading,
   fetchStatsSummary,
   type StatsDailyResponse,
+  type StatsPaperTradingResponse,
 } from "../api/stats";
 
 function numberValue(value: unknown, fallback = 0) {
@@ -19,6 +21,141 @@ function pnlColor(value: number) {
 
 function pnlText(value: number) {
   return (value > 0 ? "+" : "") + Number(value).toFixed(2) + "%";
+}
+
+function formatPrice(value: number | null | undefined) {
+  if (value === null || value === undefined) return "-";
+  return Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+}
+
+function statusLabel(status: string) {
+  if (status === "TARGET_TOUCHED") return "목표 터치";
+  if (status === "STOP_TOUCHED") return "손절 터치";
+  if (status === "NO_PRICE") return "가격 없음";
+  return "진행";
+}
+
+function PaperTradingPanel({
+  paper,
+  isLoading,
+}: {
+  paper?: StatsPaperTradingResponse;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <section className="stats-section">
+        <h3>페이퍼트레이딩</h3>
+        <p>로딩 중...</p>
+      </section>
+    );
+  }
+
+  if (!paper) {
+    return (
+      <section className="stats-section">
+        <h3>페이퍼트레이딩</h3>
+        <p>데이터를 불러올 수 없습니다.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="stats-section">
+      <h3>페이퍼트레이딩</h3>
+      <section className="stats-cards stats-cards-compact">
+        <div className="stat-card">
+          <div className="stat-label">OPEN 추천</div>
+          <div className="stat-value">{paper.openCount}</div>
+          <div className="stat-sub">가격 확인 {paper.pricedCount}건</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">평균 미실현</div>
+          <div className="stat-value" style={pnlColor(Number(paper.avgUnrealizedPnlPct))}>
+            {pnlText(Number(paper.avgUnrealizedPnlPct))}
+          </div>
+          <div className="stat-sub">단순 평균</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">비중 반영</div>
+          <div className="stat-value" style={pnlColor(Number(paper.weightedUnrealizedPnlPct))}>
+            {pnlText(Number(paper.weightedUnrealizedPnlPct))}
+          </div>
+          <div className="stat-sub">총 비중 {Number(paper.totalWeightPct).toFixed(2)}%</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">터치 현황</div>
+          <div className="stat-value">
+            {paper.targetTouchCount}/{paper.stopTouchCount}
+          </div>
+          <div className="stat-sub">목표/손절</div>
+        </div>
+      </section>
+
+      <table className="stats-table">
+        <thead>
+          <tr>
+            <th>종목</th>
+            <th>기간</th>
+            <th>현재가</th>
+            <th>미실현</th>
+            <th>비중</th>
+            <th>비중 손익</th>
+            <th>목표 이격</th>
+            <th>손절 이격</th>
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          {paper.positions.length > 0 ? (
+            paper.positions.map((position) => (
+              <tr key={position.recommendationId}>
+                <td>
+                  {position.market} {position.ticker}
+                  <div className="table-subtle">진입 {formatPrice(position.entryPrice)}</div>
+                </td>
+                <td>{position.term}</td>
+                <td>
+                  {formatPrice(position.currentPrice)}
+                  <div className="table-subtle">{position.currentTradeDate ?? "-"}</div>
+                </td>
+                <td style={pnlColor(numberValue(position.unrealizedPnlPct))}>
+                  {position.unrealizedPnlPct === null
+                    ? "-"
+                    : pnlText(numberValue(position.unrealizedPnlPct))}
+                </td>
+                <td>{Number(position.positionWeightPct).toFixed(2)}%</td>
+                <td style={pnlColor(numberValue(position.weightedPnlPct))}>
+                  {position.weightedPnlPct === null
+                    ? "-"
+                    : pnlText(numberValue(position.weightedPnlPct))}
+                </td>
+                <td>
+                  {position.distanceToTargetPct === null
+                    ? "-"
+                    : pnlText(numberValue(position.distanceToTargetPct))}
+                </td>
+                <td>
+                  {position.distanceToStopPct === null
+                    ? "-"
+                    : pnlText(numberValue(position.distanceToStopPct))}
+                </td>
+                <td>{statusLabel(position.priceStatus)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={9} style={{ textAlign: "center", color: "#888" }}>
+                OPEN 추천 없음
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </section>
+  );
 }
 
 function RoiChart({ daily }: { daily?: StatsDailyResponse[] }) {
@@ -104,6 +241,11 @@ export function StatsPage() {
   const { data: byStrategy, isLoading: strategyLoading } = useQuery({
     queryKey: ["stats-by-strategy"],
     queryFn: fetchStatsByStrategy,
+  });
+
+  const { data: paper, isLoading: paperLoading } = useQuery({
+    queryKey: ["stats-paper-trading"],
+    queryFn: fetchStatsPaperTrading,
   });
 
   return (
@@ -217,6 +359,8 @@ export function StatsPage() {
       ) : (
         <p>데이터를 불러올 수 없습니다.</p>
       )}
+
+      <PaperTradingPanel paper={paper} isLoading={paperLoading} />
 
       <section className="stats-section">
         <h3>누적 ROI (최근 30일)</h3>

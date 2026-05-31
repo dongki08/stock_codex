@@ -57,10 +57,18 @@ public class DevRecommendationGenerateService {
         String modelVersion = resolveModelVersion();
         List<PredictionEntity> predictions = predictionRepository.saveAll(
                 pricedCandidates.stream().map(candidate -> createPrediction(candidate, modelVersion, shortPredictionCache.get(candidate.ticker()))).toList());
+        List<RecommendationDraft> shortDrafts = normalizePositionWeights(pricedCandidates.stream()
+                .limit(safeShortCount)
+                .map(candidate -> createRecommendationDraft(candidate, "SHORT", modelVersion, shortPredictionCache.get(candidate.ticker())))
+                .toList());
+        List<RecommendationDraft> longDrafts = normalizePositionWeights(pricedCandidates.stream()
+                .limit(safeLongCount)
+                .map(candidate -> createRecommendationDraft(candidate, "LONG", modelVersion, null))
+                .toList());
         List<RecommendationEntity> shortRecommendations = recommendationRepository.saveAll(
-                pricedCandidates.stream().limit(safeShortCount).map(candidate -> createRecommendation(candidate, "SHORT", modelVersion, shortPredictionCache.get(candidate.ticker()))).toList());
+                shortDrafts.stream().map(this::createRecommendation).toList());
         List<RecommendationEntity> longRecommendations = recommendationRepository.saveAll(
-                pricedCandidates.stream().limit(safeLongCount).map(candidate -> createRecommendation(candidate, "LONG", modelVersion, null)).toList());
+                longDrafts.stream().map(this::createRecommendation).toList());
 
         List<Long> predictionIds = predictions.stream().map(PredictionEntity::getId).toList();
         List<Long> recommendationIds = joinRecommendationIds(shortRecommendations, longRecommendations);
@@ -98,21 +106,27 @@ public class DevRecommendationGenerateService {
         }
     }
 
-    private RecommendationEntity createRecommendation(RecommendationCandidate candidate, String term, String modelVersion, PredictedRecommendation cachedPrediction) {
+    private RecommendationDraft createRecommendationDraft(RecommendationCandidate candidate, String term, String modelVersion, PredictedRecommendation cachedPrediction) {
         PredictedRecommendation predicted = cachedPrediction == null ? pricePredictor.predict(candidate, term) : cachedPrediction;
         Integer confidence = recommendationConfidenceService.estimateConfidence(candidate.market(), term, candidate.score());
-        String signalsJson = buildSignalsJson(candidate, term, predicted, confidence);
+        return new RecommendationDraft(candidate, term, modelVersion, predicted, confidence, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+    }
+
+    private RecommendationEntity createRecommendation(RecommendationDraft draft) {
+        RecommendationCandidate candidate = draft.candidate();
+        PredictedRecommendation predicted = draft.predicted();
+        String signalsJson = buildSignalsJson(candidate, draft.term(), predicted, draft.confidence(), draft.positionWeightPct());
         return new RecommendationEntity(
                 candidate.ticker(),
                 candidate.market(),
-                term,
+                draft.term(),
                 predicted.entryPrice(),
                 predicted.targetPrice(),
                 predicted.stopPrice(),
                 predicted.expectedExitAt(),
-                confidence,
+                draft.confidence(),
                 signalsJson,
-                modelVersion,
+                draft.modelVersion(),
                 LocalDateTime.now(),
                 "OPEN"
         );
@@ -125,8 +139,29 @@ public class DevRecommendationGenerateService {
                 .orElse(MODEL_VERSION);
     }
 
-    private String buildSignalsJson(RecommendationCandidate candidate, String term, PredictedRecommendation predicted, Integer confidence) {
-        BigDecimal positionWeightPct = calculatePositionWeightPct(predicted, confidence);
+    private List<RecommendationDraft> normalizePositionWeights(List<RecommendationDraft> drafts) {
+        BigDecimal totalRawWeight = drafts.stream()
+                .map(this::rawPositionWeight)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (totalRawWeight.compareTo(BigDecimal.ZERO) <= 0) {
+            return drafts;
+        }
+        return drafts.stream()
+                .map(draft -> draft.withPositionWeightPct(rawPositionWeight(draft)
+                        .divide(totalRawWeight, 8, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100))
+                        .min(BigDecimal.valueOf(20))
+                        .setScale(2, RoundingMode.HALF_UP)))
+                .toList();
+    }
+
+    private BigDecimal rawPositionWeight(RecommendationDraft draft) {
+        BigDecimal confidenceScale = BigDecimal.valueOf(Math.max(0, Math.min(100, draft.confidence() == null ? 50 : draft.confidence())))
+                .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+        return draft.predicted().positionSizingScore().multiply(confidenceScale);
+    }
+
+    private String buildSignalsJson(RecommendationCandidate candidate, String term, PredictedRecommendation predicted, Integer confidence, BigDecimal positionWeightPct) {
         return "{\"generatedBy\":\"dev-rule-v0\",\"source\":\"" + candidate.source()
                 + "\",\"ticker\":\"" + candidate.ticker()
                 + "\",\"term\":\"" + term
@@ -135,33 +170,22 @@ public class DevRecommendationGenerateService {
                 + ",\"marketCap\":" + candidate.marketCap()
                 + ",\"avgTurnover\":" + candidate.avgTurnover()
                 + ",\"pricingMethod\":\"" + predicted.pricingMethod()
-                + "\",\"positionWeightPct\":" + positionWeightPct
+                + "\",\"volatilityPct\":" + predicted.volatilityPct()
+                + ",\"positionSizingScore\":" + predicted.positionSizingScore()
+                + ",\"positionWeightPct\":" + positionWeightPct
                 + ",\"featureJson\":" + candidate.featureJson()
                 + "}";
-    }
-
-    private BigDecimal calculatePositionWeightPct(PredictedRecommendation predicted, Integer confidence) {
-        if (predicted.entryPrice().compareTo(BigDecimal.ZERO) <= 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        }
-        BigDecimal riskPct = predicted.entryPrice().subtract(predicted.stopPrice()).abs()
-                .divide(predicted.entryPrice(), 8, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.valueOf(100));
-        if (riskPct.compareTo(BigDecimal.ZERO) <= 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        }
-        BigDecimal confidenceScale = BigDecimal.valueOf(Math.max(0, Math.min(100, confidence == null ? 50 : confidence)))
-                .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
-        return BigDecimal.ONE.divide(riskPct, 8, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.valueOf(100))
-                .multiply(confidenceScale)
-                .min(BigDecimal.valueOf(20))
-                .setScale(2, RoundingMode.HALF_UP);
     }
 
     private List<Long> joinRecommendationIds(List<RecommendationEntity> shortRecommendations, List<RecommendationEntity> longRecommendations) {
         return java.util.stream.Stream.concat(shortRecommendations.stream(), longRecommendations.stream())
                 .map(RecommendationEntity::getId)
                 .toList();
+    }
+
+    private record RecommendationDraft(RecommendationCandidate candidate, String term, String modelVersion, PredictedRecommendation predicted, Integer confidence, BigDecimal positionWeightPct) {
+        private RecommendationDraft withPositionWeightPct(BigDecimal positionWeightPct) {
+            return new RecommendationDraft(candidate, term, modelVersion, predicted, confidence, positionWeightPct);
+        }
     }
 }

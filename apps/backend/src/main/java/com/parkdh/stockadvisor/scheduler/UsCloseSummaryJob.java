@@ -2,6 +2,7 @@ package com.parkdh.stockadvisor.scheduler; // 스케줄러 패키지를 선언�
 
 import com.parkdh.stockadvisor.application.notification.NotificationService;
 import com.parkdh.stockadvisor.application.notification.NotificationService.NotificationMetric;
+import com.parkdh.stockadvisor.application.stats.StatsService;
 import com.parkdh.stockadvisor.infrastructure.persistence.price.PriceDailyRepository; // 일봉 가격 저장소를 가져온다.
 import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.RecommendationRepository; // 추천 저장소를 가져온다.
 import lombok.RequiredArgsConstructor; // 생성자 주입 어노테이션을 가져온다.
@@ -31,6 +32,7 @@ public class UsCloseSummaryJob { // 미장 마감 요약 스케줄 작업을 정
     private final RecommendationRepository recommendationRepository; // 추천 저장소를 보관한다.
     private final PriceDailyRepository priceDailyRepository; // 일봉 가격 저장소를 보관한다.
     private final NotificationService notificationService;
+    private final StatsService statsService;
     private final SchedulerSettingReader schedulerSettingReader; // 스케줄러 설정 조회 도구를 보관한다.
 
     @Scheduled(cron = "0 * * * * TUE-SAT", zone = "Asia/Seoul") // 화~토 매분 설정된 미국 마감 요약 시각인지 확인한다.
@@ -141,6 +143,8 @@ public class UsCloseSummaryJob { // 미장 마감 요약 스케줄 작업을 정
                     .append(" · stop ")
                     .append(formatPercent(snapshot.stopDistancePct())));
         }
+        message.append("\n\n")
+                .append(notificationService.formatPaperTradingSummary(statsService.getPaperTrading()));
         return message.toString();
     }
 

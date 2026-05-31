@@ -1,14 +1,21 @@
 package com.parkdh.stockadvisor.application.stats;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.stats.dto.StatsDailyResponse;
+import com.parkdh.stockadvisor.api.stats.dto.StatsPaperTradingResponse;
+import com.parkdh.stockadvisor.api.stats.dto.StatsPaperTradingResponse.PaperPosition;
 import com.parkdh.stockadvisor.api.stats.dto.StatsSummaryResponse;
 import com.parkdh.stockadvisor.api.stats.dto.StatsSummaryResponse.TermStats;
 import com.parkdh.stockadvisor.api.stats.dto.StatsStrategyResponse;
 import com.parkdh.stockadvisor.domain.evaluation.EvaluationEntity;
+import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.recommendation.RecommendationEntity;
 import com.parkdh.stockadvisor.infrastructure.persistence.evaluation.EvaluationRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.price.PriceDailyRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.RecommendationRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -19,6 +26,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
@@ -26,6 +34,8 @@ import java.util.stream.Collectors;
 public class StatsService {
     private final EvaluationRepository evaluationRepository;
     private final RecommendationRepository recommendationRepository;
+    private final PriceDailyRepository priceDailyRepository;
+    private final ObjectMapper objectMapper;
 
     public StatsSummaryResponse getSummary() {
         List<EvaluationEntity> evals = evaluationRepository.findAll();
@@ -124,6 +134,130 @@ public class StatsService {
                 })
                 .sorted(Comparator.comparing(StatsStrategyResponse::count).reversed())
                 .toList();
+    }
+
+    public StatsPaperTradingResponse getPaperTrading() {
+        List<RecommendationEntity> openRecommendations = recommendationRepository.findByStatus("OPEN").stream()
+                .sorted(Comparator.comparing(RecommendationEntity::getGeneratedAt).reversed())
+                .toList();
+        if (openRecommendations.isEmpty()) {
+            return new StatsPaperTradingResponse(0, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, 0, List.of());
+        }
+
+        BigDecimal fallbackWeight = BigDecimal.valueOf(100)
+                .divide(BigDecimal.valueOf(openRecommendations.size()), 4, RoundingMode.HALF_UP)
+                .min(BigDecimal.valueOf(20));
+        List<PaperPosition> positions = openRecommendations.stream()
+                .map(recommendation -> buildPaperPosition(recommendation, fallbackWeight))
+                .toList();
+
+        List<PaperPosition> pricedPositions = positions.stream()
+                .filter(position -> position.unrealizedPnlPct() != null)
+                .toList();
+        BigDecimal avgUnrealizedPnlPct = pricedPositions.isEmpty()
+                ? BigDecimal.ZERO
+                : pricedPositions.stream()
+                        .map(PaperPosition::unrealizedPnlPct)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add)
+                        .divide(BigDecimal.valueOf(pricedPositions.size()), 4, RoundingMode.HALF_UP);
+        BigDecimal totalWeightPct = pricedPositions.stream()
+                .map(PaperPosition::positionWeightPct)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal weightedUnrealizedPnlPct = pricedPositions.stream()
+                .map(PaperPosition::weightedPnlPct)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(4, RoundingMode.HALF_UP);
+        int targetTouchCount = (int) pricedPositions.stream()
+                .filter(position -> position.currentPrice().compareTo(position.targetPrice()) >= 0)
+                .count();
+        int stopTouchCount = (int) pricedPositions.stream()
+                .filter(position -> position.currentPrice().compareTo(position.stopPrice()) <= 0)
+                .count();
+        return new StatsPaperTradingResponse(
+                openRecommendations.size(),
+                pricedPositions.size(),
+                avgUnrealizedPnlPct,
+                weightedUnrealizedPnlPct,
+                totalWeightPct,
+                targetTouchCount,
+                stopTouchCount,
+                positions
+        );
+    }
+
+    private PaperPosition buildPaperPosition(RecommendationEntity recommendation, BigDecimal fallbackWeight) {
+        BigDecimal positionWeightPct = extractPositionWeightPct(recommendation.getSignalsJson()).orElse(fallbackWeight);
+        return priceDailyRepository.findByMarketAndTickerOrderByTradeDateDesc(recommendation.getMarket(), recommendation.getTicker(), PageRequest.of(0, 1)).stream()
+                .findFirst()
+                .map(price -> buildPricedPaperPosition(recommendation, price, positionWeightPct))
+                .orElseGet(() -> new PaperPosition(
+                        recommendation.getId(),
+                        recommendation.getTicker(),
+                        recommendation.getMarket(),
+                        recommendation.getTerm(),
+                        recommendation.getEntryPrice(),
+                        null,
+                        null,
+                        recommendation.getTargetPrice(),
+                        recommendation.getStopPrice(),
+                        recommendation.getConfidence(),
+                        positionWeightPct,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "NO_PRICE"
+                ));
+    }
+
+    private PaperPosition buildPricedPaperPosition(RecommendationEntity recommendation, PriceDailyEntity price, BigDecimal positionWeightPct) {
+        BigDecimal currentPrice = price.getClosePrice();
+        BigDecimal unrealizedPnlPct = currentPrice.subtract(recommendation.getEntryPrice())
+                .divide(recommendation.getEntryPrice(), 8, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(4, RoundingMode.HALF_UP);
+        BigDecimal weightedPnlPct = unrealizedPnlPct.multiply(positionWeightPct)
+                .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP)
+                .setScale(4, RoundingMode.HALF_UP);
+        BigDecimal distanceToTargetPct = recommendation.getTargetPrice().subtract(currentPrice)
+                .divide(currentPrice, 8, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(4, RoundingMode.HALF_UP);
+        BigDecimal distanceToStopPct = currentPrice.subtract(recommendation.getStopPrice())
+                .divide(currentPrice, 8, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(4, RoundingMode.HALF_UP);
+        String priceStatus = currentPrice.compareTo(recommendation.getTargetPrice()) >= 0 ? "TARGET_TOUCHED"
+                : currentPrice.compareTo(recommendation.getStopPrice()) <= 0 ? "STOP_TOUCHED"
+                : "OPEN";
+        return new PaperPosition(
+                recommendation.getId(),
+                recommendation.getTicker(),
+                recommendation.getMarket(),
+                recommendation.getTerm(),
+                recommendation.getEntryPrice(),
+                currentPrice,
+                price.getTradeDate(),
+                recommendation.getTargetPrice(),
+                recommendation.getStopPrice(),
+                recommendation.getConfidence(),
+                positionWeightPct,
+                unrealizedPnlPct,
+                weightedPnlPct,
+                distanceToTargetPct,
+                distanceToStopPct,
+                priceStatus
+        );
+    }
+
+    private Optional<BigDecimal> extractPositionWeightPct(String signalsJson) {
+        try {
+            JsonNode node = objectMapper.readTree(signalsJson).path("positionWeightPct");
+            return node.isNumber() ? Optional.of(node.decimalValue().setScale(2, RoundingMode.HALF_UP)) : Optional.empty();
+        } catch (Exception exception) {
+            return Optional.empty();
+        }
     }
 
     private TermStats buildTermStats(List<EvaluationEntity> evals) {
