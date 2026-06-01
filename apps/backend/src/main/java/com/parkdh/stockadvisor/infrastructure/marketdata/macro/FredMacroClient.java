@@ -33,6 +33,7 @@ public class FredMacroClient {
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
+            .version(HttpClient.Version.HTTP_1_1)
             .build();
 
     public List<MacroRow> fetchSeries(String seriesId, int limit) {

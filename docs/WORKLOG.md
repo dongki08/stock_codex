@@ -17,6 +17,11 @@
 
 ---
 
+### 2026-06-01 — Yahoo Finance 일봉 클라이언트 추가 + FRED HTTP/1.1 수정
+- 무엇: Stooq가 일봉 히스토리에 API 키 요구로 정책 변경 → `YahooFinanceClient` 신규 구현. `MarketDataSyncService.fetchDailyPrices` US 시장을 Stooq→Yahoo로 교체. FRED/ExternalApiPingClient HTTP/2 RST_STREAM 오류 → HTTP_1_1 강제. DART API 키 설정.
+- 검증: `daily-prices/sync` NASDAQ 50종목 → `upserted=4366`. `UsPreOpenJob` 트리거 → `dailySaved=2573, recommendations=4` 성공. Telegram 추천 알림 수신.
+- 변경: 신규 `YahooFinanceClient`, `MarketDataSyncService`(Yahoo 연결), `FredMacroClient`(HTTP_1_1), `ExternalApiPingClient`(HTTP_1_1), `application-local.yml`(DART 키).
+
 ### 2026-06-01 — 운영 버그 3종 수정 (KIND 파싱·name 길이·Stooq --)
 - 무엇:
   - **KIND 파싱 수정**: `KrxSymbolClient.parseRow`에서 `cells.get(1)`(시장구분)을 ticker로 잘못 읽던 문제 → 6자리 숫자 셀을 stream으로 탐색하도록 변경.
