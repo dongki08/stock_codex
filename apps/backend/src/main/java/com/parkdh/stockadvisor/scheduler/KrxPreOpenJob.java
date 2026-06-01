@@ -64,7 +64,7 @@ public class KrxPreOpenJob { // KRX 장 전 브리핑 스케줄 작업을 정의
             int shortCount = schedulerSettingReader.getInt("recommendation.short.count", 3); // 단기 추천 개수를 조회한다.
             int longCount = schedulerSettingReader.getInt("recommendation.long.count", 3); // 장기 추천 개수를 조회한다.
             MarketUniverseSyncResponse universe = marketUniverseService.syncKrSymbols("ALL"); // 한국 상장 심볼을 동기화한다.
-            PriceDailySyncResponse daily = marketDataSyncService.syncDailyPrices("KOSPI", 30, 180); // KOSPI 일봉을 제한 수량으로 동기화한다.
+            PriceDailySyncResponse daily = marketDataSyncService.syncDailyPrices("KOSPI", 30, 100); // KOSPI 일봉을 제한 수량으로 동기화한다.
             DevRecommendationGenerateResponse recommendations = devRecommendationGenerateService.generate("KOSPI", shortCount, longCount); // KOSPI 추천을 생성한다.
             notificationService.sendSchedulerEvent(
                     "krx-preopen",

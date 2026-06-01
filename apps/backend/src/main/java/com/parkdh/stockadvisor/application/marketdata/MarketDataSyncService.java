@@ -126,6 +126,7 @@ public class MarketDataSyncService { // 시장 데이터 동기화 서비스를 
     private List<DailyPriceRow> fetchDailyPrices(MarketUniverseEntity candidate, LocalDate from, LocalDate to, int maxRows) { // 후보군별 외부 일봉을 조회한다.
         String market = candidate.getMarket(); // 시장 구분을 가져온다.
         if ("KOSPI".equals(market) || "KOSDAQ".equals(market)) { // 한국 시장인지 확인한다.
+            try { Thread.sleep(600); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } // KIS 초당 거래 한도 준수를 위해 딜레이를 추가한다 (600ms = 약 1.6건/초).
             return kisApiClient.fetchDailyPrices(candidate.getTicker(), from, to).stream()
                     .map(price -> new DailyPriceRow(candidate.getTicker(), market, price.tradeDate(), price.openPrice(), price.highPrice(), price.lowPrice(), price.closePrice(), price.volume(), price.turnover(), "KIS")) // KIS 일봉을 공통 행으로 변환한다.
                     .toList(); // 목록으로 수집한다.
