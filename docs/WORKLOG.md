@@ -17,6 +17,12 @@
 
 ---
 
+### 2026-06-01 — Codex CLI 연동 시도 + KIS 키 설정
+- 무엇: `codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral` 방식으로 OpenAI Codex CLI 연동 시도. `ProcessBuilder` stdin 닫기, 타임아웃 120→300초. application-local.yml에 KIS/DART 키 설정.
+- 결과: Codex CLI(gpt-5.5 에이전트)가 300초 초과로 타임아웃. fallback 템플릿으로 정상 작동. Codex 완전 연동은 미완.
+- 변경: `CodexClient`(exec 서브커맨드, stdin close, 타임아웃 증가), `application-local.yml`(KIS/DART/Telegram 키).
+- 후속: Codex 대신 Anthropic Claude API 직접 호출로 교체 검토. 또는 codex exec 완료 대기 방식 개선.
+
 ### 2026-06-01 — Yahoo Finance 일봉 클라이언트 추가 + FRED HTTP/1.1 수정
 - 무엇: Stooq가 일봉 히스토리에 API 키 요구로 정책 변경 → `YahooFinanceClient` 신규 구현. `MarketDataSyncService.fetchDailyPrices` US 시장을 Stooq→Yahoo로 교체. FRED/ExternalApiPingClient HTTP/2 RST_STREAM 오류 → HTTP_1_1 강제. DART API 키 설정.
 - 검증: `daily-prices/sync` NASDAQ 50종목 → `upserted=4366`. `UsPreOpenJob` 트리거 → `dailySaved=2573, recommendations=4` 성공. Telegram 추천 알림 수신.

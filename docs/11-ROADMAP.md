@@ -59,6 +59,8 @@
 - **2026-05-31 M8 페이퍼트레이딩 프론트 패널 완료** — 성과 통계 화면에 OPEN 추천 페이퍼트레이딩 요약/포지션 표 추가. `npm run build` BUILD SUCCESSFUL. 다음: 운영 알림 연동, 실제 Telegram 발송 검증.
 - **2026-05-31 M8 페이퍼트레이딩 운영 알림 연동** — US 마감 요약 알림에 `StatsService.getPaperTrading()` 기반 OPEN 추천 수, 가격 확인 수, 평균/비중 미실현 손익, 목표/손절 터치 수, 리스크 체크 포지션을 포함. `gradlew test` BUILD SUCCESSFUL. 다음: 실제 Telegram Bot Token/Chat ID 환경에서 도착 및 `notification_log` 성공 기록 검증.
 - **2026-05-31 Telegram 실발송 검증 정보 보강** — `TelegramClient`가 dev-placeholder 여부, HTTP 상태 코드, 실패 원인을 담은 상세 결과를 반환하고 `/api/dev/notifications/test` 및 `notification_log.error_message`에 반영. 다음: 실제 환경 변수 설정 후 테스트 API 호출.
+- **2026-06-01 운영 연동 완료** — Telegram Bot/Chat ID, DART API 키, KIS API 키(재시도+600ms 딜레이) 설정. KIND 파싱 버그(컬럼 순서), `market_universe.name` V10(200→500), Stooq `--` 필터 수정. Yahoo Finance `YahooFinanceClient` 신규(Stooq 일봉 대체). FRED/Ping HTTP_1_1 강제. 스케줄러 수동 트리거 API(`/api/dev/notifications/trigger/*`) 추가. 전체 파이프라인 검증: KRX `universeSaved=2657 dailySaved=1876 recommendations=4`, US `dailySaved=2573 recommendations=4`, Telegram 수신 확인.
+- **2026-06-01 미완**: Codex CLI(OpenAI gpt-5.5 에이전트) 300초 타임아웃 → fallback 템플릿 사용 중. Anthropic Claude API 직접 연동 또는 codex 응답 방식 개선 필요.
 
 ### 2026-05-29 코드 감사 결과 (실측)
 

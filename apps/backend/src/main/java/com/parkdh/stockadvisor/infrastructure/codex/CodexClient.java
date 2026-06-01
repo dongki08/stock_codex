@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 @Component
 public class CodexClient {
-    private static final int TIMEOUT_SECONDS = 120;
+    private static final int TIMEOUT_SECONDS = 300;
     private static final ZoneId APP_ZONE = ZoneId.of("Asia/Seoul");
 
     private final CodexCliProperties codexCliProperties;
@@ -77,10 +77,15 @@ public class CodexClient {
         }
 
         try {
-            List<String> command = List.of(codexCliProperties.command(), "--profile", profile, "--print", prompt);
+            List<String> command = List.of(codexCliProperties.command(), "exec",
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "--skip-git-repo-check",
+                    "--ephemeral",
+                    prompt);
             Process process = new ProcessBuilder(command)
                     .redirectErrorStream(true)
                     .start();
+            process.getOutputStream().close(); // stdin 닫아서 대기 방지
 
             boolean finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             long durationMs = System.currentTimeMillis() - startMs;
