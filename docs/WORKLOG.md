@@ -17,6 +17,29 @@
 
 ---
 
+### 2026-06-01 — 운영 버그 3종 수정 (KIND 파싱·name 길이·Stooq --)
+- 무엇:
+  - **KIND 파싱 수정**: `KrxSymbolClient.parseRow`에서 `cells.get(1)`(시장구분)을 ticker로 잘못 읽던 문제 → 6자리 숫자 셀을 stream으로 탐색하도록 변경.
+  - **name 컬럼 확장**: `market_universe.name` `nvarchar(200)` → `nvarchar(500)`. V10 마이그레이션 추가. `MarketUniverseEntity`에 `truncate(500)` 방어 처리.
+  - **Stooq `--` 파싱 오류**: `parseQuote`/`parseDailyPriceLine` 유효성 체크에 `"--"` 추가 (`N/D`와 동일 처리).
+- 왜: US 프리오픈 스케줄러 트리거 시 연속 에러 발생. 각각 KIND 테이블 컬럼 순서 변경, 미국 종목 긴 이름, Stooq 데이터 없음 응답 때문.
+- 변경: `KrxSymbolClient`, `MarketUniverseEntity`, `V10__market_universe_name_expand.sql`, `StooqQuoteClient`.
+- 검증: `UsPreOpenJob` 트리거 → `universeSaved=7425, quotesSaved=49, recommendations=4` 성공. `gradlew test` BUILD SUCCESSFUL.
+- 후속: KRX 추천은 KIS API 키 없으면 `No usable price data` 에러(dev-placeholder 한계). US 플로우 정상.
+
+### 2026-06-01 — 스케줄러 수동 트리거 API 추가 + 운영 검증
+- 무엇: `DevNotificationController`에 KRX프리오픈/US프리오픈/US마감 즉시 실행 엔드포인트 추가. `UsPreOpenJob`/`UsCloseSummaryJob`에 `public trigger()` 노출. KRX·US마감 트리거 실행 후 Telegram 알림 수신 확인.
+- 왜: 실제 cron 시각(KRX 08:30, US 마감 05:30) 대기 없이 스케줄러 통합 검증 필요.
+- 변경: `DevNotificationController`(트리거 3개 엔드포인트), `UsPreOpenJob.trigger()`, `UsCloseSummaryJob.trigger()`.
+- 검증: `POST /api/dev/notifications/trigger/krx-preopen`, `/trigger/us-close` → 200, Telegram 메시지 수신.
+- 후속: `POST /api/dev/notifications/trigger/us-preopen` 동일 방식 검증 가능.
+
+### 2026-06-01 — Telegram 실발송 검증 완료 + 전체 빌드 확인
+- 무엇: `application-local.yml`에 실제 Bot Token/Chat ID 설정 후 `/api/dev/notifications/test` 호출로 Telegram 메시지 수신 확인. 백엔드 `gradlew test` + 프론트 `npm run build` 전체 통과.
+- 변경: `application-local.yml`(telegram.bot-token, telegram.chat-id 실값 설정).
+- 검증: `sent:true, devMode:false` 응답, Telegram 메시지 도착 확인. BUILD SUCCESSFUL.
+- 후속: 스케줄러 실 cron(KRX/US 프리오픈·마감) 알림 운영 검증.
+
 ### 2026-05-31 — Telegram 실발송 검증 정보 보강
 - 무엇: Telegram 전송 결과를 `TelegramSendResult`로 구조화해 dev-placeholder 여부, HTTP 상태 코드, 실패 원인을 구분하고, 테스트 발송 API와 `notification_log.error_message`에 실패 원인을 남기도록 변경.
 - 왜: M8 실제 Telegram 검증 시 토큰 누락, Chat ID 누락, Telegram API 거절, 네트워크 실패를 `sent=false` 하나로만 볼 수 있어 원인 파악이 어려웠기 때문.

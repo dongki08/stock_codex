@@ -36,6 +36,10 @@ public class KrxPreOpenJob { // KRX 장 전 브리핑 스케줄 작업을 정의
         if (!isCurrentSeoulMinute(configuredTime)) { // 현재 시간이 설정 시각인지 확인한다.
             return; // 설정 시각이 아니면 종료한다.
         } // 설정 시각 확인을 종료한다.
+        trigger();
+    }
+
+    public void trigger() {
         log.info("KrxPreOpenJob 시작"); // 작업 시작 로그를 출력한다.
         try { // 예외를 처리한다.
             if (!schedulerSettingReader.getBooleanField("recommendation.market.enabled", "kr", true)) { // 한국 시장 활성화 설정을 확인한다.

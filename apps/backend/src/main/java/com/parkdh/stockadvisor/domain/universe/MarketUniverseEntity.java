@@ -32,7 +32,7 @@ public class MarketUniverseEntity extends BaseEntity { // 자동 추천 후보�
     private String market; // KOSPI, KOSDAQ, NYSE, NASDAQ 값을 보관한다.
 
     @Comment("종목명") // 종목명 컬럼 설명을 지정한다.
-    @Column(name = "name", length = 200, nullable = false) // 종목명 컬럼을 매핑한다.
+    @Column(name = "name", length = 500, nullable = false) // 종목명 컬럼을 매핑한다.
     private String name; // 종목명을 보관한다.
 
     @Comment("섹터") // 섹터 컬럼 설명을 지정한다.
@@ -71,7 +71,7 @@ public class MarketUniverseEntity extends BaseEntity { // 자동 추천 후보�
         this.universeKey = buildKey(market, ticker); // 유니버스 키를 생성한다.
         this.ticker = ticker; // 종목 코드를 저장한다.
         this.market = market; // 시장 구분을 저장한다.
-        this.name = name; // 종목명을 저장한다.
+        this.name = truncate(name, 500); // 종목명을 저장한다.
         this.sector = sector; // 섹터명을 저장한다.
         this.marketCap = marketCap; // 시가총액을 저장한다.
         this.avgTurnover = avgTurnover; // 평균 거래대금을 저장한다.
@@ -83,7 +83,7 @@ public class MarketUniverseEntity extends BaseEntity { // 자동 추천 후보�
     } // 생성자를 종료한다.
 
     public void update(String name, String sector, BigDecimal marketCap, BigDecimal avgTurnover, BigDecimal lastPrice, Boolean tradable, String source, LocalDate lastSyncedAt) { // 시장 유니버스 정보를 갱신한다.
-        this.name = name; // 종목명을 갱신한다.
+        this.name = truncate(name, 500); // 종목명을 갱신한다.
         this.sector = sector; // 섹터명을 갱신한다.
         this.marketCap = marketCap; // 시가총액을 갱신한다.
         this.avgTurnover = avgTurnover; // 평균 거래대금을 갱신한다.
@@ -104,4 +104,9 @@ public class MarketUniverseEntity extends BaseEntity { // 자동 추천 후보�
     public static String buildKey(String market, String ticker) { // 시장과 종목 코드로 유니버스 키를 만든다.
         return market + ":" + ticker; // 유니버스 키를 반환한다.
     } // 유니버스 키 생성을 종료한다.
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null) return "";
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    }
 } // 시장 유니버스 엔티티를 종료한다.

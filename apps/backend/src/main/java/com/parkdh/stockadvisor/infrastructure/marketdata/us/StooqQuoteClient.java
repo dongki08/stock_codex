@@ -76,7 +76,7 @@ public class StooqQuoteClient { // Stooq 시세 클라이언트를 정의한다.
             return Optional.empty(); // 데이터가 없으면 빈 값을 반환한다.
         } // 데이터 행 확인을 종료한다.
         String[] values = lines[1].split(",", -1); // 데이터 행을 쉼표로 나눈다.
-        if (values.length < 8 || Arrays.stream(values).anyMatch(value -> "N/D".equalsIgnoreCase(value))) { // 유효하지 않은 값이 있는지 확인한다.
+        if (values.length < 8 || Arrays.stream(values).anyMatch(value -> "N/D".equalsIgnoreCase(value) || "--".equals(value))) { // 유효하지 않은 값이 있는지 확인한다.
             return Optional.empty(); // 유효하지 않으면 빈 값을 반환한다.
         } // 값 유효성 확인을 종료한다.
         String ticker = values[0].replace(".US", "").replace(".us", "").toUpperCase(); // 응답 심볼을 표준 티커로 변환한다.
@@ -98,7 +98,7 @@ public class StooqQuoteClient { // Stooq 시세 클라이언트를 정의한다.
 
     private Optional<StooqDailyPrice> parseDailyPriceLine(String line, String fallbackTicker) { // CSV 단일 행을 일봉으로 파싱한다.
         String[] values = line.split(",", -1); // 데이터 행을 쉼표로 나눈다.
-        if (values.length < 6 || Arrays.stream(values).anyMatch(value -> "N/D".equalsIgnoreCase(value))) { // 유효하지 않은 값이 있는지 확인한다.
+        if (values.length < 6 || Arrays.stream(values).anyMatch(value -> "N/D".equalsIgnoreCase(value) || "--".equals(value))) { // 유효하지 않은 값이 있는지 확인한다.
             return Optional.empty(); // 유효하지 않으면 빈 값을 반환한다.
         } // 값 유효성 확인을 종료한다.
         try { // 숫자와 날짜 파싱 예외를 처리한다.

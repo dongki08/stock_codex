@@ -46,6 +46,8 @@ public class UsCloseSummaryJob { // 미장 마감 요약 스케줄 작업을 정
         run(); // 실제 작업을 실행한다.
     } // 설정 기반 미국 마감 요약 작업을 종료한다.
 
+    public void trigger() { run(); }
+
     private void run() { // 스케줄 작업을 실행한다.
         log.info("UsCloseSummaryJob 시작"); // 작업 시작 로그를 출력한다.
         try { // 예외를 처리한다.

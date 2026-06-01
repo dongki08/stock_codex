@@ -6,6 +6,9 @@ import com.parkdh.stockadvisor.global.dto.ResultDto;
 import com.parkdh.stockadvisor.infrastructure.notification.TelegramClient;
 import com.parkdh.stockadvisor.infrastructure.notification.TelegramClient.TelegramSendResult;
 import com.parkdh.stockadvisor.infrastructure.persistence.notification.NotificationLogRepository;
+import com.parkdh.stockadvisor.scheduler.KrxPreOpenJob;
+import com.parkdh.stockadvisor.scheduler.UsCloseSummaryJob;
+import com.parkdh.stockadvisor.scheduler.UsPreOpenJob;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +29,9 @@ import java.util.HexFormat;
 public class DevNotificationController {
     private final TelegramClient telegramClient;
     private final NotificationLogRepository notificationLogRepository;
+    private final KrxPreOpenJob krxPreOpenJob;
+    private final UsPreOpenJob usPreOpenJob;
+    private final UsCloseSummaryJob usCloseSummaryJob;
 
     @Operation(summary = "Telegram 알림 테스트 발송",
             description = "Telegram 봇 연결 확인용 테스트 메시지를 발송하고 notification_log에 기록한다. dev-placeholder 모드에서는 로그만 출력한다.")
@@ -45,6 +51,27 @@ public class DevNotificationController {
                 message,
                 log.getId()
         ));
+    }
+
+    @Operation(summary = "KRX 프리오픈 스케줄러 즉시 실행", description = "KrxPreOpenJob을 즉시 실행한다. 실제 cron 시각과 무관하게 강제 트리거.")
+    @PostMapping("/trigger/krx-preopen")
+    public ResultDto<String> triggerKrxPreOpen() {
+        krxPreOpenJob.trigger();
+        return ResultDto.success("KrxPreOpenJob triggered");
+    }
+
+    @Operation(summary = "US 프리오픈 스케줄러 즉시 실행", description = "UsPreOpenJob을 즉시 실행한다.")
+    @PostMapping("/trigger/us-preopen")
+    public ResultDto<String> triggerUsPreOpen() {
+        usPreOpenJob.trigger();
+        return ResultDto.success("UsPreOpenJob triggered");
+    }
+
+    @Operation(summary = "US 마감 요약 스케줄러 즉시 실행", description = "UsCloseSummaryJob을 즉시 실행한다.")
+    @PostMapping("/trigger/us-close")
+    public ResultDto<String> triggerUsClose() {
+        usCloseSummaryJob.trigger();
+        return ResultDto.success("UsCloseSummaryJob triggered");
     }
 
     private String hashText(String text) {
