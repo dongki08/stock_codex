@@ -42,6 +42,7 @@ class PricePredictorTest {
     void predictRejectsCandidateWithoutDailyHistoryOrLastPrice() {
         RecommendationCandidate candidate = new RecommendationCandidate(
                 "NO_PRICE",
+                "NoPrice Inc.",
                 "NASDAQ",
                 null,
                 null,
@@ -66,6 +67,7 @@ class PricePredictorTest {
     void predictUsesCandidateLastPriceWhenDailyHistoryIsMissing() {
         RecommendationCandidate candidate = new RecommendationCandidate(
                 "AAPL",
+                "Apple Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(123.45678),
                 null,
@@ -91,6 +93,7 @@ class PricePredictorTest {
     void predictGivesHigherSizingScoreToLowerVolatilityCandidate() {
         RecommendationCandidate lowVolatility = new RecommendationCandidate(
                 "LOW",
+                "Low Vol Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(100),
                 null,
@@ -103,6 +106,7 @@ class PricePredictorTest {
         );
         RecommendationCandidate highVolatility = new RecommendationCandidate(
                 "HIGH",
+                "High Vol Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(100),
                 null,
@@ -129,6 +133,7 @@ class PricePredictorTest {
     void predictAdjustsTargetAndStopForTradingCostAndSlippage() {
         RecommendationCandidate candidate = new RecommendationCandidate(
                 "AAPL",
+                "Apple Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(100),
                 null,

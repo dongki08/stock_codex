@@ -1,14 +1,15 @@
-export type ApiResult<T> = {
-  code: number;
-  data?: T;
-  error_message?: string;
-};
+import { unwrapResult } from "./result";
 
 export type PriceDailySyncResult = {
   market: string;
   candidateCount: number;
+  requestedTickerCount: number;
+  skippedUpToDateCount: number;
+  skippedNoHistoryCount: number;
   fetchedCount: number;
   upsertedCount: number;
+  targetDate: string;
+  mode: string;
   samplePriceKeys: string[];
 };
 
@@ -80,13 +81,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options
   });
 
-  const result = (await response.json()) as ApiResult<T>;
-
-  if (!response.ok || result.code !== 200) {
-    throw new Error(result.error_message ?? "API 요청에 실패했습니다.");
-  }
-
-  return result.data as T;
+  return unwrapResult<T>(response);
 }
 
 export function syncDailyPrices(market = "ALL", limit = "20", days = "120") {

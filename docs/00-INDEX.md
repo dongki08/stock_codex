@@ -1,7 +1,7 @@
 # 📚 Stock Advisor 문서 인덱스
 
 > 모든 문서의 시작점. **어떤 문서를 봐야 하는지 여기서 결정.**
-> 최종 정리: 2026-05-29 · 코드 기준: `apps/backend` (Spring Boot 3.3 / Java 21 / MSSQL)
+> 최종 정리: 2026-06-02 · 코드 기준: `apps/backend` (Spring Boot 3.3 / Java 21 / MSSQL / Flyway V10)
 
 ---
 

@@ -1,8 +1,4 @@
-export type ApiResult<T> = {
-  code: number;
-  data?: T;
-  error_message?: string;
-};
+import { unwrapResult } from "./result";
 
 export type MarketUniverseItem = {
   universeKey: string;
@@ -70,13 +66,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options
   });
 
-  const result = (await response.json()) as ApiResult<T>;
-
-  if (!response.ok || result.code !== 200) {
-    throw new Error(result.error_message ?? "API 요청에 실패했습니다.");
-  }
-
-  return result.data as T;
+  return unwrapResult<T>(response);
 }
 
 export function getUniverse(query: UniverseQuery = {}) {

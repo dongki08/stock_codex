@@ -18,6 +18,7 @@ import com.parkdh.stockadvisor.domain.evaluation.EvaluationEntity; // 평가 엔
 import com.parkdh.stockadvisor.domain.recommendation.RecommendationEntity; // 추천 엔티티를 가져온다.
 import com.parkdh.stockadvisor.domain.setting.AppSettingEntity; // 앱 설정 엔티티를 가져온다.
 import com.parkdh.stockadvisor.global.exception.CustomException; // 커스텀 예외를 가져온다.
+import com.parkdh.stockadvisor.infrastructure.codex.CodexClient; // Codex CLI 클라이언트를 가져온다.
 import com.parkdh.stockadvisor.infrastructure.persistence.autoresearch.AutoresearchRunRepository; // AutoResearch 실행 저장소를 가져온다.
 import com.parkdh.stockadvisor.infrastructure.persistence.autoresearch.StrategyVersionRepository; // 전략 버전 저장소를 가져온다.
 import com.parkdh.stockadvisor.infrastructure.persistence.audit.AuditLogRepository; // 감사 로그 저장소를 가져온다.
@@ -73,6 +74,7 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
     private final BacktestRunService backtestRunService; // 백테스트 서비스 의존성을 보관한다.
     private final FeatureICService featureICService; // 피처 IC 측정 서비스 의존성을 보관한다.
     private final ObjectMapper objectMapper; // JSON 도구 의존성을 보관한다.
+    private final CodexClient codexClient; // Codex 가중치 제안 클라이언트 의존성을 보관한다.
 
     public List<AutoresearchRunResponse> getRuns(UUID jobRunId) { // AutoResearch 실행 목록을 조회한다.
         List<AutoresearchRunEntity> entities = jobRunId == null ? autoresearchRunRepository.findAll() : autoresearchRunRepository.findByJobRunId(jobRunId); // 작업 UUID 조건 여부에 따라 실행 목록을 조회한다.
@@ -137,10 +139,23 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
         String bestWeightsJson = originalWeightsJson; // 최고 가중치 JSON을 초기화한다.
         BigDecimal bestMetric = championMetric; // 최고 지표를 기존 챔피언으로 초기화한다.
         boolean promoted = false; // 승격 여부를 보관한다.
+        boolean codexEnabled = readBooleanSetting("autoresearch.codex.enabled", false); // Codex 가중치 제안 사용 여부를 읽는다.
+        FeatureICService.FeatureICReport codexIcReport = codexEnabled ? featureICService.measureLatest() : null; // Codex 프롬프트용 IC 리포트를 한 번만 계산한다.
         for (int iterNo = 1; iterNo <= iterations; iterNo++) { // 요청된 반복 횟수만큼 실행한다.
             LocalDateTime startedAt = LocalDateTime.now(); // 시작 시각을 기록한다.
-            FeatureICService.MutationGuide mutationGuide = featureICService.guideForIteration(iterNo, MUTATION_PATHS); // IC 기반 변형 가이드를 생성한다.
-            String proposalJson = mutateWeights(originalWeightsJson, mutationGuide); // 후보 가중치를 생성한다.
+            String proposalJson; // 이번 후보 가중치 JSON을 보관한다.
+            String proposalSummary; // 후보 생성 방식 요약을 보관한다.
+            Optional<String> codexProposal = codexEnabled
+                    ? codexProposeWeights(originalWeightsJson, codexIcReport, championMetric, iterNo)
+                    : Optional.empty(); // Codex 제안을 시도한다(실패/미설정 시 비어 있음).
+            if (codexProposal.isPresent()) { // Codex 제안이 유효하면 사용한다.
+                proposalJson = codexProposal.get(); // Codex 제안 가중치를 후보로 둔다.
+                proposalSummary = "codex-weights proposal #" + iterNo; // Codex 제안임을 기록한다.
+            } else { // Codex 미사용/실패면 기존 IC 변형으로 폴백한다.
+                FeatureICService.MutationGuide mutationGuide = featureICService.guideForIteration(iterNo, MUTATION_PATHS); // IC 기반 변형 가이드를 생성한다.
+                proposalJson = mutateWeights(originalWeightsJson, mutationGuide); // 후보 가중치를 생성한다.
+                proposalSummary = mutationGuide.summary(); // 변형 요약을 기록한다.
+            } // 후보 생성 방식 선택을 종료한다.
             String proposalSha = hash(proposalJson); // 후보 해시를 생성한다.
             try { // 단일 실험 실패를 기록하고 다음 실험으로 진행한다.
                 saveWeights(proposalJson); // 후보 가중치를 적용한다.
@@ -158,7 +173,7 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
                         iterNo,
                         parentSha,
                         proposalSha,
-                        mutationGuide.summary(),
+                        proposalSummary,
                         "avgPnlPct",
                         metricValue,
                         championMetric,
@@ -225,6 +240,90 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
             return defaultValue; // 기본값을 반환한다.
         } // 예외 처리를 종료한다.
     } // 정수 설정 읽기를 종료한다.
+
+    private boolean readBooleanSetting(String key, boolean defaultValue) { // 불리언 설정을 읽는다.
+        try { // JSON 파싱 실패를 처리한다.
+            Optional<AppSettingEntity> setting = appSettingRepository.findById(key); // 설정을 조회한다.
+            if (setting.isEmpty()) { // 설정이 없으면 확인한다.
+                return defaultValue; // 기본값을 반환한다.
+            } // 설정 없음 확인을 종료한다.
+            JsonNode value = objectMapper.readTree(setting.get().getValueJson()).path("value"); // value 필드를 읽는다.
+            return value.isBoolean() ? value.asBoolean(defaultValue) : defaultValue; // 불리언이면 설정값을 반환한다.
+        } catch (Exception exception) { // 파싱 실패를 처리한다.
+            return defaultValue; // 기본값을 반환한다.
+        } // 예외 처리를 종료한다.
+    } // 불리언 설정 읽기를 종료한다.
+
+    private Optional<String> codexProposeWeights(String currentWeightsJson, FeatureICService.FeatureICReport icReport, BigDecimal championMetric, int iterNo) { // Codex에게 가중치 제안을 받는다.
+        try { // Codex 호출/파싱 실패를 IC 변형 폴백으로 흡수한다.
+            String prompt = buildWeightsPrompt(currentWeightsJson, icReport, championMetric, iterNo); // 가중치 튜닝 프롬프트를 만든다.
+            CodexClient.CodexResult result = codexClient.call(prompt, "autoresearch", "autoresearch-weights"); // Codex CLI를 호출한다.
+            if (!result.succeeded()) { // Codex 실패/미설정이면 폴백한다.
+                return Optional.empty(); // 제안 없음을 반환한다.
+            } // 실패 확인을 종료한다.
+            String json = extractJsonObject(result.response()); // 응답에서 JSON 객체만 추출한다.
+            if (json == null) { // JSON이 없으면 폴백한다.
+                return Optional.empty(); // 제안 없음을 반환한다.
+            } // JSON 없음 확인을 종료한다.
+            JsonNode proposed = objectMapper.readTree(json); // 제안 JSON을 파싱한다.
+            ObjectNode merged = (ObjectNode) objectMapper.readTree(currentWeightsJson).deepCopy(); // 현재 가중치를 복사해 병합 기반으로 둔다.
+            mergeWeightGroup(merged, proposed, "value"); // 종합 그룹을 병합한다.
+            mergeWeightGroup(merged, proposed, "technical"); // 기술 그룹을 병합한다.
+            mergeWeightGroup(merged, proposed, "context"); // 컨텍스트 그룹을 병합한다.
+            normalizeWeightGroup((ObjectNode) merged.path("value")); // 종합 그룹 합을 1로 정규화한다.
+            normalizeWeightGroup((ObjectNode) merged.path("technical")); // 기술 그룹 합을 1로 정규화한다.
+            normalizeWeightGroup((ObjectNode) merged.path("context")); // 컨텍스트 그룹 합을 1로 정규화한다.
+            return Optional.of(objectMapper.writeValueAsString(merged)); // 정규화된 제안 가중치를 반환한다.
+        } catch (Exception exception) { // 호출/파싱 실패를 처리한다.
+            return Optional.empty(); // 폴백을 위해 제안 없음을 반환한다.
+        } // 예외 처리를 종료한다.
+    } // Codex 가중치 제안을 종료한다.
+
+    private void mergeWeightGroup(ObjectNode merged, JsonNode proposed, String group) { // 제안 그룹의 숫자 값만 기존 키 위에 병합한다.
+        JsonNode proposedGroup = proposed.path(group); // 제안 그룹 노드를 조회한다.
+        JsonNode mergedGroupNode = merged.path(group); // 병합 대상 그룹 노드를 조회한다.
+        if (!proposedGroup.isObject() || !mergedGroupNode.isObject()) { // 양쪽이 객체가 아니면 건너뛴다.
+            return; // 병합을 종료한다.
+        } // 객체 확인을 종료한다.
+        ObjectNode mergedGroup = (ObjectNode) mergedGroupNode; // 병합 대상 그룹을 가져온다.
+        proposedGroup.fields().forEachRemaining(field -> { // 제안 그룹 필드를 순회한다.
+            if (field.getValue().isNumber() && mergedGroup.has(field.getKey())) { // 숫자이고 기존 키에 있을 때만 적용한다(키 추가/삭제 금지).
+                mergedGroup.put(field.getKey(), field.getValue().decimalValue().max(BigDecimal.ZERO)); // 음수는 0으로 막아 저장한다.
+            } // 적용 조건 확인을 종료한다.
+        }); // 필드 순회를 종료한다.
+    } // 제안 그룹 병합을 종료한다.
+
+    private String extractJsonObject(String response) { // 응답 문자열에서 첫 JSON 객체를 추출한다(마크다운 펜스 제거 효과).
+        if (response == null) { // 응답이 없으면 확인한다.
+            return null; // null을 반환한다.
+        } // 응답 없음 확인을 종료한다.
+        int start = response.indexOf('{'); // 첫 중괄호 위치를 찾는다.
+        int end = response.lastIndexOf('}'); // 마지막 중괄호 위치를 찾는다.
+        if (start < 0 || end <= start) { // 유효한 객체 범위가 아니면 확인한다.
+            return null; // null을 반환한다.
+        } // 범위 확인을 종료한다.
+        return response.substring(start, end + 1); // JSON 객체 부분만 반환한다.
+    } // JSON 객체 추출을 종료한다.
+
+    private String buildWeightsPrompt(String currentWeightsJson, FeatureICService.FeatureICReport icReport, BigDecimal championMetric, int iterNo) { // 가중치 튜닝 프롬프트를 만든다.
+        String icDetail = icReport == null || icReport.ics().isEmpty()
+                ? "none"
+                : icReport.ics().stream()
+                        .map(ic -> ic.weightPath() + "=" + ic.guideIc())
+                        .collect(java.util.stream.Collectors.joining(", ")); // 피처별 IC 요약을 만든다.
+        StringBuilder builder = new StringBuilder(); // 프롬프트 빌더를 만든다.
+        builder.append("WEIGHT_TUNING_CONTRACT\n"); // 계약 헤더를 기록한다.
+        builder.append("You tune scoring weights for a stock recommendation engine. "); // 역할을 설명한다.
+        builder.append("Return ONLY a JSON object with the SAME structure and keys as CURRENT_WEIGHTS. "); // 출력 형식을 지정한다.
+        builder.append("Values are relative weights (normalized to sum 1 per group). "); // 값 의미를 설명한다.
+        builder.append("Raise weights of features with positive forward-return IC, lower those near zero. "); // 튜닝 방향을 지정한다.
+        builder.append("Explore variant #").append(iterNo).append(" with a different tradeoff than other variants. "); // 다양성을 유도한다.
+        builder.append("No prose, JSON only.\n"); // 산문 금지를 지정한다.
+        builder.append("CURRENT_WEIGHTS: ").append(currentWeightsJson).append('\n'); // 현재 가중치를 제공한다.
+        builder.append("FEATURE_IC (Spearman vs forward return, higher=more predictive): ").append(icDetail).append('\n'); // IC 신호를 제공한다.
+        builder.append("CHAMPION_AVG_PNL_PCT: ").append(championMetric == null ? "none" : championMetric).append('\n'); // 챔피언 성과를 제공한다.
+        return builder.toString(); // 프롬프트 문자열을 반환한다.
+    } // 가중치 튜닝 프롬프트 생성을 종료한다.
 
     private Optional<StrategyVersionEntity> latestChampion() { // 최신 챔피언 전략을 조회한다.
         return strategyVersionRepository.findByChampion(true).stream()

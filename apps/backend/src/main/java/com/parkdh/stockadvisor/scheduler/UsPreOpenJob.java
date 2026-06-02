@@ -70,8 +70,21 @@ public class UsPreOpenJob { // 미국 장 전 브리핑 스케줄 작업을 정�
             int longCount = schedulerSettingReader.getInt("recommendation.long.count", 3); // 장기 추천 개수를 조회한다.
             MarketUniverseSyncResponse universe = marketUniverseService.syncUsSymbols("ALL"); // 미국 상장 심볼을 동기화한다.
             MarketUniverseSyncResponse quotes = marketUniverseService.syncUsPrices("NASDAQ", 50); // NASDAQ 최근 가격을 동기화한다.
-            PriceDailySyncResponse daily = marketDataSyncService.syncDailyPrices("NASDAQ", 30, 180); // NASDAQ 일봉을 제한 수량으로 동기화한다.
+            PriceDailySyncResponse daily = marketDataSyncService.syncDailyPricesForPreOpen("NASDAQ", 30, 180); // 장전에는 최신 증분만 확인하고 대량 bootstrap은 백필 잡에 맡긴다.
             DevRecommendationGenerateResponse recommendations = devRecommendationGenerateService.generate("NASDAQ", shortCount, longCount); // NASDAQ 추천을 생성한다.
+            List<String> recLines = recommendations.recommendations().stream()
+                    .map(r -> {
+                        String displayName = r.name() != null ? r.name() : r.ticker();
+                        String pct = r.targetPrice() != null && r.entryPrice() != null && r.entryPrice().compareTo(java.math.BigDecimal.ZERO) != 0
+                                ? String.format("%+.1f%%", r.targetPrice().subtract(r.entryPrice()).divide(r.entryPrice(), 4, java.math.RoundingMode.HALF_UP).multiply(java.math.BigDecimal.valueOf(100)).doubleValue())
+                                : "";
+                        String termLabel = "SHORT".equals(r.term()) ? "단기" : "장기";
+                        return "[🇺🇸 미장] " + r.ticker() + " " + displayName + " " + termLabel
+                                + "\n🟢 진입 " + r.entryPrice().stripTrailingZeros().toPlainString()
+                                + "\n🎯 목표 " + r.targetPrice().stripTrailingZeros().toPlainString() + " " + pct
+                                + "\n🛑 손절 " + r.stopPrice().stripTrailingZeros().toPlainString();
+                    })
+                    .toList();
             notificationService.sendSchedulerEvent(
                     "us-preopen",
                     "success",
@@ -83,7 +96,7 @@ public class UsPreOpenJob { // 미국 장 전 브리핑 스케줄 작업을 정�
                             new NotificationMetric("일봉 저장", daily.upsertedCount() + "개"),
                             new NotificationMetric("추천 생성", recommendations.generatedRecommendationCount() + "건")
                     ),
-                    List.of("추천 IDs: " + recommendations.recommendationIds())
+                    recLines
             );
             log.info("UsPreOpenJob 완료. universeSaved={}, quotesSaved={}, dailySaved={}, recommendations={}", universe.upsertedCount(), quotes.upsertedCount(), daily.upsertedCount(), recommendations.generatedRecommendationCount()); // 작업 완료 로그를 출력한다.
         } catch (Exception exception) { // 예외를 잡는다.

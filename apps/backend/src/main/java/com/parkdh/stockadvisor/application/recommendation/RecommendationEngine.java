@@ -130,6 +130,7 @@ public class RecommendationEngine {
     private RecommendationCandidate fromFeature(UniverseFeature feature) {
         return new RecommendationCandidate(
                 feature.ticker(),
+                feature.entity().getName(),
                 feature.market(),
                 feature.lastPrice(),
                 feature.entity().getMarketCap(),
@@ -144,7 +145,7 @@ public class RecommendationEngine {
 
     private RecommendationCandidate fromInstrument(InstrumentEntity entity) {
         String featureJson = "{\"source\":\"instrument_fallback\",\"totalScore\":50}";
-        return new RecommendationCandidate(entity.getTicker(), entity.getMarket(), null, null, null, entity.getSector(), "instrument_fallback", 50, 40, featureJson);
+        return new RecommendationCandidate(entity.getTicker(), entity.getName(), entity.getMarket(), null, null, null, entity.getSector(), "instrument_fallback", 50, 40, featureJson);
     }
 
     private boolean matchesFilter(RecommendationCandidate candidate, RecommendationFilter filter) {

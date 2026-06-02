@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.autoresearch.dto.AutoresearchAutoRunRequest;
 import com.parkdh.stockadvisor.application.backtest.BacktestRunService;
 import com.parkdh.stockadvisor.application.research.FeatureICService;
+import com.parkdh.stockadvisor.infrastructure.codex.CodexClient;
 import com.parkdh.stockadvisor.domain.autoresearch.AutoresearchRunEntity;
 import com.parkdh.stockadvisor.domain.autoresearch.StrategyVersionEntity;
 import com.parkdh.stockadvisor.domain.evaluation.EvaluationEntity;
@@ -57,6 +58,8 @@ class AutoresearchServiceTest {
     private BacktestRunService backtestRunService;
     @Mock
     private FeatureICService featureICService;
+    @Mock
+    private CodexClient codexClient;
 
     private AutoresearchService service;
 
@@ -71,7 +74,8 @@ class AutoresearchServiceTest {
                 evaluationRepository,
                 backtestRunService,
                 featureICService,
-                new ObjectMapper()
+                new ObjectMapper(),
+                codexClient
         );
         lenient().when(featureICService.guideForIteration(anyInt(), any())).thenReturn(new FeatureICService.MutationGuide(
                 "value.technical",
@@ -167,6 +171,57 @@ class AutoresearchServiceTest {
                         .contains("market: NASDAQ")
                         .contains("avgPnlPct")
                         .contains("weights:"));
+    }
+
+    @Test
+    void runAutoResearchUsesCodexProposalWhenEnabled() {
+        AppSettingEntity weights = new AppSettingEntity(
+                "recommendation.scoring.weights",
+                "{\"value\":{\"liquidity\":0.20,\"price\":0.10,\"technical\":0.30,\"context\":0.15,\"fundamental\":0.10,\"dataQuality\":0.15},\"technical\":{\"ma\":0.30,\"rsi\":0.25,\"volume\":0.20,\"macd\":0.15,\"bollinger\":0.10},\"context\":{\"news\":0.40,\"disclosure\":0.18,\"macro\":0.25,\"fundamental\":0.17}}",
+                "weights",
+                "test"
+        );
+        when(appSettingRepository.findById(anyString())).thenAnswer(invocation -> {
+            String key = invocation.getArgument(0);
+            if ("recommendation.scoring.weights".equals(key)) {
+                return Optional.of(weights);
+            }
+            if ("autoresearch.codex.enabled".equals(key)) {
+                return Optional.of(new AppSettingEntity("autoresearch.codex.enabled", "{\"value\":true}", "codex", "test"));
+            }
+            return Optional.empty();
+        });
+        when(featureICService.measureLatest()).thenReturn(FeatureICService.FeatureICReport.empty());
+        when(codexClient.call(any(), any(), any())).thenReturn(new CodexClient.CodexResult(
+                true,
+                "{\"value\":{\"liquidity\":0.10,\"price\":0.10,\"technical\":0.40,\"context\":0.15,\"fundamental\":0.10,\"dataQuality\":0.15},\"technical\":{\"ma\":0.30,\"rsi\":0.25,\"volume\":0.20,\"macd\":0.15,\"bollinger\":0.10},\"context\":{\"news\":0.40,\"disclosure\":0.18,\"macro\":0.25,\"fundamental\":0.17}}",
+                null,
+                5L
+        ));
+        when(strategyVersionRepository.findByChampion(true)).thenReturn(List.of());
+        when(backtestRunService.evaluateRecommendationEngine(any())).thenReturn(new BacktestRunService.BacktestEvaluation(
+                "recommendation-engine-v1",
+                LocalDate.of(2025, 1, 1),
+                LocalDate.of(2025, 12, 31),
+                "{\"avgPnlPct\":1.25}",
+                BigDecimal.valueOf(1.25)
+        ));
+        when(autoresearchRunRepository.save(any(AutoresearchRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(strategyVersionRepository.save(any(StrategyVersionEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var runs = service.runAutoResearch(new AutoresearchAutoRunRequest(
+                "NASDAQ",
+                LocalDate.of(2025, 1, 1),
+                LocalDate.of(2025, 12, 31),
+                1,
+                1,
+                20,
+                null,
+                null
+        ));
+
+        assertThat(runs).hasSize(1);
+        assertThat(runs.get(0).diffSummary()).startsWith("codex-weights proposal");
     }
 
     @Test

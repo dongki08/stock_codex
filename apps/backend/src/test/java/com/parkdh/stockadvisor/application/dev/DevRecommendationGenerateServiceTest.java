@@ -12,6 +12,7 @@ import com.parkdh.stockadvisor.global.exception.CustomException;
 import com.parkdh.stockadvisor.infrastructure.persistence.autoresearch.StrategyVersionRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.prediction.PredictionRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.RecommendationRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.universe.MarketUniverseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +43,8 @@ class DevRecommendationGenerateServiceTest {
     private RecommendationConfidenceService confidenceService;
     @Mock
     private StrategyVersionRepository strategyVersionRepository;
+    @Mock
+    private MarketUniverseRepository marketUniverseRepository;
 
     private DevRecommendationGenerateService service;
 
@@ -53,7 +56,8 @@ class DevRecommendationGenerateServiceTest {
                 predictionRepository,
                 recommendationRepository,
                 confidenceService,
-                strategyVersionRepository
+                strategyVersionRepository,
+                marketUniverseRepository
         );
     }
 
@@ -61,6 +65,7 @@ class DevRecommendationGenerateServiceTest {
     void generateUsesEstimatedConfidenceInsteadOfTickerHash() {
         RecommendationCandidate candidate = new RecommendationCandidate(
                 "AAPL",
+                "Apple Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(123),
                 BigDecimal.valueOf(1_000_000_000L),
@@ -148,6 +153,7 @@ class DevRecommendationGenerateServiceTest {
     void generateSkipsCandidateWhenPriceDataIsUnavailable() {
         RecommendationCandidate noPrice = new RecommendationCandidate(
                 "NO_PRICE",
+                "NoPrice Inc.",
                 "NASDAQ",
                 null,
                 null,
@@ -160,6 +166,7 @@ class DevRecommendationGenerateServiceTest {
         );
         RecommendationCandidate priced = new RecommendationCandidate(
                 "AAPL",
+                "Apple Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(123),
                 BigDecimal.valueOf(1_000_000_000L),
@@ -201,6 +208,7 @@ class DevRecommendationGenerateServiceTest {
     void generateUsesLatestChampionStrategyVersionWhenAvailable() {
         RecommendationCandidate candidate = new RecommendationCandidate(
                 "AAPL",
+                "Apple Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(123),
                 BigDecimal.valueOf(1_000_000_000L),
@@ -251,6 +259,7 @@ class DevRecommendationGenerateServiceTest {
     private RecommendationCandidate candidate(String ticker, int score) {
         return new RecommendationCandidate(
                 ticker,
+                ticker + " Inc.",
                 "NASDAQ",
                 BigDecimal.valueOf(123),
                 BigDecimal.valueOf(1_000_000_000L),

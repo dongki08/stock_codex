@@ -3,12 +3,17 @@ package com.parkdh.stockadvisor.application.backtest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestSimulationRequest;
+import com.parkdh.stockadvisor.application.feature.UniverseFeature;
+import com.parkdh.stockadvisor.application.feature.UniverseFeatureBuilder;
 import com.parkdh.stockadvisor.domain.backtest.BacktestRunEntity;
 import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.setting.AppSettingEntity;
+import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.infrastructure.persistence.backtest.BacktestRunRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.price.PriceDailyRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.feature.FeatureSnapshotRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.universe.MarketUniverseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,13 +38,29 @@ class BacktestRunServiceTest {
     private PriceDailyRepository priceDailyRepository;
     @Mock
     private AppSettingRepository appSettingRepository;
+    @Mock
+    private UniverseFeatureBuilder universeFeatureBuilder;
+    @Mock
+    private MarketUniverseRepository marketUniverseRepository;
+    @Mock
+    private FeatureSnapshotRepository featureSnapshotRepository;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private BacktestRunService service;
 
     @BeforeEach
     void setUp() {
-        service = new BacktestRunService(backtestRunRepository, priceDailyRepository, appSettingRepository, objectMapper);
+        service = new BacktestRunService(backtestRunRepository, priceDailyRepository, appSettingRepository, objectMapper, universeFeatureBuilder, marketUniverseRepository, featureSnapshotRepository);
+    }
+
+    /** AAPL 유니버스 엔티티와 진입 임계 이상(80점) 피처를 스텁한다. 스냅샷 없음 → buildFeatureAsOf 폴백 경로. */
+    private void stubScoredUniverse() {
+        MarketUniverseEntity universeEntity = new MarketUniverseEntity(
+                "AAPL", "NASDAQ", "Apple", "Tech", null, null, BigDecimal.valueOf(100), true, "TEST", null);
+        when(marketUniverseRepository.findById("NASDAQ:AAPL")).thenReturn(Optional.of(universeEntity));
+        when(featureSnapshotRepository.findById(any())).thenReturn(Optional.empty()); // 스냅샷 없음 → 폴백
+        when(universeFeatureBuilder.buildFeatureAsOf(any(), any()))
+                .thenReturn(new UniverseFeature(universeEntity, 80, 80, 80, 80, 80, 80, 80, 60, 80, "{}"));
     }
 
     @Test
@@ -53,6 +74,7 @@ class BacktestRunServiceTest {
         when(appSettingRepository.findById("backtest.cost.us"))
                 .thenReturn(Optional.of(new AppSettingEntity("backtest.cost.us", "{\"secFeeEnabled\":true,\"fxSpreadPercent\":0.5}", "us cost", "test")));
         when(backtestRunRepository.save(any(BacktestRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        stubScoredUniverse();
 
         var response = service.simulateBacktest(new BacktestSimulationRequest(
                 "ma20-breakout-v0",
@@ -79,6 +101,7 @@ class BacktestRunServiceTest {
         when(priceDailyRepository.findByMarketAndTradeDateBetweenOrderByTickerAscTradeDateAsc("NASDAQ", from, from.plusDays(prices.size() - 1)))
                 .thenReturn(prices);
         when(backtestRunRepository.save(any(BacktestRunEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        stubScoredUniverse();
 
         var response = service.simulateBacktest(new BacktestSimulationRequest(
                 "recommendation-engine-v1",

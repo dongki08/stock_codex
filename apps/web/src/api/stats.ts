@@ -1,4 +1,4 @@
-import type { ApiResult } from "./recommendations";
+import { unwrapResult } from "./result";
 
 export interface TermStats {
   count: number;
@@ -67,24 +67,20 @@ export interface StatsPaperTradingResponse {
 
 export async function fetchStatsSummary(): Promise<StatsSummaryResponse> {
   const res = await fetch("/api/stats/summary");
-  const body: ApiResult<StatsSummaryResponse> = await res.json();
-  return body.data!;
+  return unwrapResult<StatsSummaryResponse>(res);
 }
 
 export async function fetchStatsDaily(): Promise<StatsDailyResponse[]> {
   const res = await fetch("/api/stats/daily");
-  const body: ApiResult<StatsDailyResponse[]> = await res.json();
-  return body.data!;
+  return unwrapResult<StatsDailyResponse[]>(res);
 }
 
 export async function fetchStatsByStrategy(): Promise<StatsStrategyResponse[]> {
   const res = await fetch("/api/stats/by-strategy");
-  const body: ApiResult<StatsStrategyResponse[]> = await res.json();
-  return body.data!;
+  return unwrapResult<StatsStrategyResponse[]>(res);
 }
 
 export async function fetchStatsPaperTrading(): Promise<StatsPaperTradingResponse> {
   const res = await fetch("/api/stats/paper-trading");
-  const body: ApiResult<StatsPaperTradingResponse> = await res.json();
-  return body.data!;
+  return unwrapResult<StatsPaperTradingResponse>(res);
 }

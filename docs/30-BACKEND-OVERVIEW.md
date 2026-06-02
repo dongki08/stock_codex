@@ -1,6 +1,6 @@
 # Stock Advisor — 백엔드 전체 구조
 
-> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 30(아키텍처) · 상태 🟢 현행 · 코드기준 2026-05-29
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 30(아키텍처) · 상태 🟢 현행 · 코드기준 2026-06-02
 >
 > **Stack**: Spring Boot 3.3 · Java 21 · MSSQL · Flyway · Spring Security BasicAuth  
 > **포트**: 8083  
@@ -103,7 +103,7 @@ DB 조회 후 Java 인메모리 집계.
 | Method | 경로 | 설명 |
 |--------|------|------|
 | GET | `/api/market-data/daily-prices` | 일봉 가격 조회 (ticker, from, to 필터) |
-| POST | `/api/market-data/daily-prices/sync` | 일봉 시세 동기화 (Stooq) |
+| POST | `/api/market-data/daily-prices/sync` | 후보군 일봉 시세 동기화. DB 최신일을 먼저 확인하고 필요한 구간만 KIS(KR)/Yahoo(US)에서 증분 수집 |
 | GET | `/api/market-data/intraday-prices` | 장중 가격 조회 |
 | GET | `/api/market-data/news` | RSS 수집 뉴스 조회 |
 | POST | `/api/market-data/news/sync` | Google News / Yahoo Finance RSS 수집 |
@@ -229,7 +229,7 @@ DB 조회 후 Java 인메모리 집계.
 
 ---
 
-## 4. DB 테이블 (Flyway V1~V6)
+## 4. DB 테이블 (Flyway V1~V10)
 
 | 테이블 | 설명 |
 |--------|------|
@@ -253,6 +253,9 @@ DB 조회 후 Java 인메모리 집계.
 | `disclosure_event` | DART/SEC 공시 (V4) |
 | `market_signal_score` | 시그널 스코어 (V5) |
 | `fundamental_metric` | SEC/KIS/DART 펀더멘털 (V6) |
+| `feature_snapshot` | PIT feature 점수와 forward return (V9) |
+
+V10은 `market_universe.name` 컬럼 길이를 `nvarchar(500)`으로 확장한다.
 
 ---
 
@@ -263,7 +266,8 @@ DB 조회 후 Java 인메모리 집계.
 | `KisApiClient` | 한국투자증권 OpenAPI | KR 장중 시세 |
 | `KisTokenStore` | KIS OAuth | 토큰 인메모리 캐시 |
 | `KrxSymbolClient` | KRX/KIND | KR 상장 종목 목록 |
-| `StooqQuoteClient` | Stooq CSV | US/KR 일봉 시세 (무료) |
+| `StooqQuoteClient` | Stooq CSV | US 최근 quote, 지수 일봉(KOSPI/SPY), ExitMonitor US 현재가 |
+| `YahooFinanceClient` | Yahoo Finance chart API | US 후보군 일봉 히스토리 |
 | `NasdaqTraderSymbolClient` | NASDAQ Trader | US 상장 종목 목록 |
 | `RssNewsClient` | Google News / Yahoo Finance RSS | 뉴스 수집 |
 | `DisclosureClient` | DART(KR) / SEC EDGAR(US) | 공시 수집 |
@@ -284,6 +288,8 @@ DB 조회 후 Java 인메모리 집계.
 | `MarketDataCollectionJob` | 평일 08:15 | KR 데이터 수집 시작 |
 | `MarketDataCollectionJob` | 평일 21:40 | US 데이터 수집 시작 |
 | `MarketDataCollectionJob` | 평일 07:00 | 전일 데이터 정리 |
+| `DailyPriceBackfillJob` | 평일 18:10 | KR 일봉 백필. DB에 없거나 오래된 후보군을 장후에 채움 |
+| `DailyPriceBackfillJob` | 화~토 07:20 | US 일봉 백필. DB에 없거나 오래된 후보군을 장후에 채움 |
 | `UsPreOpenJob` | 평일 22:00 | US 장 전 브리프 생성 |
 | `UsCloseSummaryJob` | 화~토 05:30 | US 마감 요약 |
 | `ExitMonitorJob` | 평일 09:00~15:55 (5분마다) | KR 보유 종목 Exit 조건 모니터링 |

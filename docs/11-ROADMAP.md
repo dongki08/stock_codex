@@ -1,15 +1,13 @@
 # Stock Advisor 작업명세서
 
-> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 11(로드맵) · 상태 🟢 현행(§0=2026-05-31 델타, §1↓=05-22 스냅샷)
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 11(로드맵) · 상태 🟢 현행(§0=2026-06-02 델타, §1↓=05-22 스냅샷)
 >
-> 작성 기준: 2026-05-22 (아래 §0 = 2026-05-31 재검토 델타)
+> 작성 기준: 2026-05-22 (아래 §0 = 2026-06-02 재검토 델타)
 
 ## 📍 단계별 진행 맵 (어디까지 왔나 — 한눈에)
 
 > 마일스톤 순서. 주차는 네 속도로 배치(예: M7을 1~3주차로). 상태: ✅완료 · 🔶부분 · ⚠️됐지만 결함 · ⛔미착수
-> **현재 위치: 토대(M0~M6) 대부분 완성. M4가 결함, M7(수익 두뇌)이 다음 핵심.**
->
-> 🔴 **즉시 수정 빌드 리스크**: `ExitConfirmServiceTest`가 삭제된 `ExitConfirmService`를 참조 → `gradlew test` 컴파일 실패. 해당 테스트 삭제/이관 먼저.
+> **현재 위치: 토대(M0~M7) 구현 완료. 다음 핵심은 M8 실운영 검증과 Codex CLI 응답 안정화.**
 
 | 단계 | 내용 | 상태 | 근거/핵심 | 남은 일 |
 |---|---|:--:|---|---|
@@ -17,7 +15,7 @@
 | **M1** | 시장데이터 인프라 | ✅ | price/news/disclosure/macro/fundamental 수집 + 클라이언트 7종(KIS/Stooq/DART/SEC/FRED/RSS) | 펀더멘털 분기누적·정규화 후속 |
 | **M2** | 추천 엔진(룰) | ⚠️ | `RecommendationEngine`·`UniverseFeatureBuilder`·`PricePredictor`·섹터캡 | 점수가 알파 약함 → M7에서 강화 |
 | **M3** | 평가·Exit 자동화 | ✅ | `ExitMonitorJob` 룰 자동청산 + `evaluation`·confidence | — |
-| **M4** | 자기개선 루프 | ⚠️ | `AutoresearchService`·`BacktestRunService` 본체 완성 | **백테스트 미래참조로 사실상 무효** → M7 TASK-1·2로 재작업 |
+| **M4** | 자기개선 루프 | ✅ | `AutoresearchService`·`BacktestRunService` 본체 완성, 2026-06-02 백테스트가 `buildFeatureAsOf` 점수를 읽도록 유효화 | 대규모 유니버스 백테스트 성능 최적화 |
 | **M5** | 알림·브리프·스케줄러 | 🔶 | `NotificationService` 4개 스케줄러+ExitMonitor 배선, Telegram·Codex 브리프, `ExternalApiPingClient` 헬스 | 실키 발송 검증, dev-placeholder→실연동 |
 | **M6** | 프론트 운영화면 | ✅ | 추천/후보군/종목/통계/설정/수집/백테스트 화면 | 잔여 폴리시 |
 | **M7** | 💰 수익 두뇌 강화 | ✅ | TASK-1·2·3·4·5·6·7·8 완료 | 운영 데이터로 검증. [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md) |
@@ -36,20 +34,19 @@
 
 ---
 
-## 0. 2026-05-29 갱신 델타 (이후 변경분)
+## 0. 2026-06-02 갱신 델타 (이후 변경분)
 
 > §1 이하 본문은 2026-05-22 스냅샷. 그 뒤 코드 변경 핵심만 여기 정리. 충돌 시 이 절·코드가 우선.
 
-- **마이그레이션 V7·V8 추가** — V7 `market_universe.delisted_at`, V8 `exit_confirm_log` 테이블 제거.
+- **마이그레이션 V7~V10 적용** — V7 `market_universe.delisted_at`, V8 `exit_confirm_log` 제거, V9 `feature_snapshot`, V10 `market_universe.name` 확장.
 - **ExitConfirm 기능 제거** — `ExitConfirmService`/`ExitConfirmLogEntity`/`ExitConfirmLogRepository`/DTO 삭제. Exit 판정은 `ExitMonitorJob`의 룰 기반(목표가/손절가/만료)으로 일원화.
-- **AutoResearch 루프 본체 완성** — 가중치 mutation→백테스트→챔피언 승격/롤백(`AutoresearchService`). ⚠️ 백테스트 미래참조 한계 있음 → [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md) TASK-1·2.
+- **AutoResearch 루프 본체 완성·유효화** — 가중치 mutation→백테스트→챔피언 승격/롤백(`AutoresearchService`). 2026-06-02부터 백테스트 진입 점수가 `buildFeatureAsOf`를 통해 현재 가중치를 읽는다.
 - **비용 반영 PnL** — 거래세/수수료/슬리피지/환전 스프레드 반영(`PricePredictor`, `BacktestRunService`).
 - **섹터 분산** — `recommendation.sector.max`(기본 2) 종목당 캡.
 - **BCrypt** — admin 비밀번호 해시 저장.
 - **신규 클라이언트(미커밋, 배선 완료)** — `DartFundamentalClient`(KR 재무 YoY)·`SentimentAnalysisClient`(외부 감성)는 `MarketDataCollectionService`에 연결. `NotificationService`는 4개 스케줄러+ExitMonitor에 배선. `ExternalApiPingClient`(ops) 추가. 각각 테스트 보유.
 - **컨트롤러 19종** 운영 중(§ [30-BACKEND-OVERVIEW](30-BACKEND-OVERVIEW.md) 참조).
 - **테스트 24종** (`RecommendationEngineTest`·`UniverseFeatureBuilderTest`·`BacktestRunServiceTest`·`PricePredictorTest` 등).
-- 🔴 **빌드 리스크(즉시)**: `ExitConfirmServiceTest`가 삭제된 `ExitConfirmService`를 참조 → 컴파일 실패. 테스트 삭제/이관 필요.
 - **남은 핵심 과제**: 수익률 두뇌 강화 → [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md). 결함 이력 → [41-DEFECTS-AND-FIXES](41-DEFECTS-AND-FIXES.md).
 - **2026-05-31 M7 TASK-1·2·3·4·8 완료** — 백테스트 score 진입(미래참조 제거), PIT 피처 스냅샷(`feature_snapshot` V9), 펀더멘털/매크로 방향성 점수, 뉴스 감성 주축, regime 필터 기본 ON + 지수 일봉 적재. `gradlew test` BUILD SUCCESSFUL.
 - **2026-05-31 M7 TASK-5 완료** — `UniverseFeatureBuilder.buildFeatures()`에서 시장별 raw feature 점수를 백분위 기반 cross-sectional 점수로 변환 후 재합산. `featureJson`에 `raw*Score`, `crossSectionalNormalized`, `feature-rule-v4` 기록. `gradlew test` BUILD SUCCESSFUL. 다음: TASK-6·7.
@@ -61,6 +58,9 @@
 - **2026-05-31 Telegram 실발송 검증 정보 보강** — `TelegramClient`가 dev-placeholder 여부, HTTP 상태 코드, 실패 원인을 담은 상세 결과를 반환하고 `/api/dev/notifications/test` 및 `notification_log.error_message`에 반영. 다음: 실제 환경 변수 설정 후 테스트 API 호출.
 - **2026-06-01 운영 연동 완료** — Telegram Bot/Chat ID, DART API 키, KIS API 키(재시도+600ms 딜레이) 설정. KIND 파싱 버그(컬럼 순서), `market_universe.name` V10(200→500), Stooq `--` 필터 수정. Yahoo Finance `YahooFinanceClient` 신규(Stooq 일봉 대체). FRED/Ping HTTP_1_1 강제. 스케줄러 수동 트리거 API(`/api/dev/notifications/trigger/*`) 추가. 전체 파이프라인 검증: KRX `universeSaved=2657 dailySaved=1876 recommendations=4`, US `dailySaved=2573 recommendations=4`, Telegram 수신 확인.
 - **2026-06-01 미완**: Codex CLI(OpenAI gpt-5.5 에이전트) 300초 타임아웃 → fallback 템플릿 사용 중. Anthropic Claude API 직접 연동 또는 codex 응답 방식 개선 필요.
+- **2026-06-02 AutoResearch 루프 유효화** — 백테스트 진입 점수가 `UniverseFeatureBuilder.buildFeatureAsOf(entity, tradeDate).totalScore()`를 사용해 `recommendation.scoring.weights` 변형이 metric에 반영됨. `feature_snapshot` 우선 조회 + 폴백 재계산 적용. `gradlew test` BUILD SUCCESSFUL.
+- **2026-06-02 문서/설정 정합성 정리** — `AGENTS.md`/`CLAUDE.md` 동기화, 현행 문서 Flyway V10/API 경로 보정, `application-local.yml.example`도 `ddl-auto: validate`로 정렬, 프론트 `ApiResult` 타입 중앙화. `gradlew test`, `npm run build` BUILD SUCCESSFUL.
+- **2026-06-02 일봉 동기화 최적화** — `MarketDataSyncService`가 DB 최신 거래일을 먼저 확인해 이미 최신인 종목은 외부 조회를 스킵하고, 장전 프리오픈 작업은 오래 비어 있는 히스토리 bootstrap을 하지 않도록 분리. `DailyPriceBackfillJob` 추가: KRX 18:10, US 07:20에 비어 있거나 오래된 일봉 히스토리를 장후 백필. 응답에 `requestedTickerCount`, `skippedUpToDateCount`, `skippedNoHistoryCount`, `targetDate`, `mode` 추가.
 
 ### 2026-05-29 코드 감사 결과 (실측)
 
@@ -69,9 +69,9 @@
 | 컨트롤러 | 19 | — |
 | application 서비스 | 18 | NotificationService·NotificationLogService 포함 |
 | infra 클라이언트 | 13 | Dart·Sentiment·ExternalApiPing 신규 |
-| 스케줄러 | 6 + SettingReader | KRX/US 프리오픈·US마감·수집·AutoResearch·ExitMonitor |
-| Flyway | V1~V8 | exit_confirm_log 제거됨(V8) |
-| 테스트 | 24 | ⚠️ ExitConfirmServiceTest 오펀 |
+| 스케줄러 | 7 + SettingReader | KRX/US 프리오픈·US마감·수집·일봉백필·AutoResearch·ExitMonitor |
+| Flyway | V1~V10 | V9 `feature_snapshot`, V10 `market_universe.name` 확장 |
+| 테스트 | 24+ | `gradlew test` 최신 작업트리 통과 |
 | 프론트 화면 | 7 | Admin/Backtests/Instruments/MarketData/Recommendations/Stats/Universe |
 
 ---
@@ -106,15 +106,15 @@
 | 한국 심볼 동기화 | 완료 | KIND 상장법인 목록 기반 KOSPI/KOSDAQ 후보군 동기화 |
 | Feature API | 부분 완료 | 유동성/가격/데이터 품질과 price_daily 기반 RSI/이동평균/거래량 점수 생성 |
 | 통계 API | 완료 | summary, daily, by-strategy 기본 집계 |
-| 일봉 가격 API | 완료 | price_daily 저장/조회, 후보군 기반 KIS/Stooq 일봉 동기화 |
+| 일봉 가격 API | 완료 | price_daily 저장/조회, 후보군 기반 KIS(KR)/Yahoo(US) 일봉 동기화. DB 최신일 확인 후 필요한 구간만 증분 조회 |
 | 장중 가격 API | 완료 | price_intraday 저장/조회, ExitMonitorJob 현재가 스냅샷 저장 |
 | 뉴스/공시/매크로/펀더멘털 API | 부분 완료 | RSS, DART/SEC, FRED, SEC Company Facts 수집/조회 API와 스케줄러 연결 |
 | Telegram 테스트 발송 | 부분 완료 | dev-placeholder 또는 실제 Telegram 전송, notification_log 저장 |
-| Codex CLI 호출 | 부분 완료 | ProcessBuilder 호출, 일 호출/예상 예산 한도 차단, 수집 데이터 기반 브리프/Exit Confirm fallback, 엄격한 ACTION 파싱, codex_call 저장 |
-| 스케줄러 골격 | 부분 완료 | KRX/US 프리오픈 Job이 후보군/일봉/추천/알림 플로우를 실행하고 ExitMonitor가 국내 현재가 스냅샷/Exit Confirm을 처리 |
+| Codex CLI 호출 | 부분 완료 | ProcessBuilder 호출, 일 호출/예상 예산 한도 차단, 수집 데이터 기반 브리프 fallback, codex_call 저장. 운영상 CLI 300초 타임아웃 개선 필요 |
+| 스케줄러 골격 | 부분 완료 | KRX/US 프리오픈 Job이 후보군/일봉/추천/알림 플로우를 실행하고 ExitMonitor가 현재가 스냅샷/목표가·손절가·만료 자동청산을 처리 |
 | BasicAuth/Actuator | 부분 완료 | `/api/admin/**`, `/api/ops/**`, `/actuator/**` BasicAuth 보호, `/api/dev/**` 기본 보호, BCrypt 패스워드 저장 |
 | 운영 헬스체크 | 부분 완료 | `/api/ops/external-health`에서 KIS/Telegram/Codex/Stooq/KIND 설정 상태, Codex 일 호출량/예상 예산, 수집 데이터 최신성 READY/STALE/NO_DATA 조회 |
-| Flyway 마이그레이션 | 완료 | `V1`~`V8` 적용 (V8: `exit_confirm_log` 제거), `ddl-auto: validate` 기준 |
+| Flyway 마이그레이션 | 완료 | `V1`~`V10` 적용 (V9: `feature_snapshot`, V10: `market_universe.name` 확장), `ddl-auto: validate` 기준 |
 | Swagger 문서 | 완료 | `http://localhost:8083/swagger-ui.html` |
 
 ### 1.2 프론트 구현 완료
@@ -385,7 +385,7 @@ http://127.0.0.1:5173
 |---|---|
 | 심볼 목록 | NASDAQ Trader 공개 파일 기반 동기화 완료 |
 | 최근 가격 | Stooq CSV 기반 `lastPrice`, `avgTurnover` 갱신 완료 |
-| 시세 히스토리 | Stooq 일봉 조회 및 price_daily 저장 완료 |
+| 시세 히스토리 | Yahoo 일봉 조회 및 price_daily 저장 완료. Stooq는 최근 quote/ExitMonitor 용도로 유지 |
 
 ### P2-3. 뉴스/RSS 수집
 
@@ -482,15 +482,15 @@ http://127.0.0.1:5173
 
 현재 `/api/dev/brief/generate`는 OPEN 추천, 시장 후보군, 일봉, 뉴스, 공시, 매크로, 펀더멘털, 성과 통계 컨텍스트를 묶어 Codex에 전달한다. Codex CLI 미설정 또는 실패 시 로컬 템플릿 브리프로 fallback한다. 남은 작업은 컨텍스트 품질 고도화, 토큰/호출량 제한, 실제 운영 스케줄 메시지 포맷 정리다.
 
-### P4-3. Exit Confirm
+### P4-3. ExitMonitor 자동청산
 
 | 항목 | 내용 |
 |---|---|
-| 목적 | 손절 위험 구간에서 Codex가 HOLD/CUT/TIGHTEN 판단을 보조한다. |
-| 상태 | 부분 완료 |
-| 완료 기준 | 위험 구간 진입 시 Codex 판단 결과 저장 |
+| 목적 | 목표가/손절가/예상 종료일 조건으로 OPEN 추천을 자동 평가·청산한다. |
+| 상태 | 완료 |
+| 완료 기준 | 조건 도달 시 중복 평가 없이 `evaluation` 생성 후 추천 상태를 CLOSED 또는 EXPIRED로 전환 |
 
-현재 수동 API와 ExitMonitorJob 자동 호출이 구현되어 있다. 최근 price_intraday/price_daily, 추천 signalsJson, 손절 이격률을 포함해 Codex를 호출하고, dev-placeholder 또는 실패 시 규칙 기반 fallback을 사용한다. 손절가 이하의 명확한 CUT 케이스는 Codex를 호출하지 않고 룰 기반으로 즉시 판단하며, Codex 응답은 첫 줄의 엄격한 `ACTION: HOLD|CUT|TIGHTEN` 형식만 인정한다. ExitMonitor는 목표가 도달/손절가 이탈/예상 종료일 초과 시 중복 평가가 없을 때 평가를 생성하고 추천 상태를 CLOSED 또는 EXPIRED로 자동 전환한다. 남은 작업은 RSI/MA 기반 HOLD, 위험구간 지속시간 기반 TIGHTEN, 실제 운영 메시지 포맷과 중복 알림 정책 고도화다.
+ExitConfirm 기능은 V8에서 제거됐다. 현재 `ExitMonitorJob`은 KR/US OPEN 추천을 폴링하면서 목표가 도달, 손절가 이탈, 예상 종료일 초과를 룰 기반으로 판정한다. 조건 도달 시 이미 평가가 없는 추천에 대해 `evaluation`을 생성하고 추천 상태를 CLOSED 또는 EXPIRED로 전환한다. 남은 작업은 보유 기간 중 최저가 기반 `drawdownPct` 보강과 실제 운영 메시지 포맷 고도화다.
 
 ## P5. 통계 대시보드
 

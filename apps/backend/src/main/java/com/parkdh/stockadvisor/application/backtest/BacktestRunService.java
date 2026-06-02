@@ -5,14 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestRunCreateRequest;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestRunResponse;
 import com.parkdh.stockadvisor.api.backtest.dto.BacktestSimulationRequest;
+import com.parkdh.stockadvisor.application.feature.UniverseFeatureBuilder;
 import com.parkdh.stockadvisor.domain.backtest.BacktestRunEntity;
 import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.setting.AppSettingEntity;
+import com.parkdh.stockadvisor.domain.feature.FeatureSnapshotEntity;
+import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.global.exception.CustomException;
 import com.parkdh.stockadvisor.global.util.JsonValidationUtil;
 import com.parkdh.stockadvisor.infrastructure.persistence.backtest.BacktestRunRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.price.PriceDailyRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.feature.FeatureSnapshotRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.universe.MarketUniverseRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -33,6 +38,9 @@ public class BacktestRunService {
     private final PriceDailyRepository priceDailyRepository;
     private final AppSettingRepository appSettingRepository;
     private final ObjectMapper objectMapper;
+    private final UniverseFeatureBuilder universeFeatureBuilder;
+    private final MarketUniverseRepository marketUniverseRepository;
+    private final FeatureSnapshotRepository featureSnapshotRepository;
 
     public List<BacktestRunResponse> getBacktestRuns() {
         return backtestRunRepository.findAll().stream()
@@ -100,7 +108,16 @@ public class BacktestRunService {
                 .collect(Collectors.groupingBy(row -> row.getMarket() + ":" + row.getTicker(), LinkedHashMap::new, Collectors.toList()));
         List<SimulatedTrade> trades = byTicker.values().stream()
                 .limit(maxTickers)
-                .map(rows -> simulateTicker(rows, holdingDays, targetPct, stopPct, resolveBacktestCost(rows.get(0).getMarket()), minScore))
+                .map(rows -> {
+                    PriceDailyEntity head = rows.get(0);
+                    MarketUniverseEntity universeEntity = marketUniverseRepository
+                            .findById(MarketUniverseEntity.buildKey(head.getMarket(), head.getTicker()))
+                            .orElse(null);
+                    if (universeEntity == null) {
+                        return List.<SimulatedTrade>of(); // 유니버스에 없는 종목은 시뮬에서 제외한다.
+                    }
+                    return simulateTicker(universeEntity, rows, holdingDays, targetPct, stopPct, resolveBacktestCost(head.getMarket()), minScore);
+                })
                 .flatMap(List::stream)
                 .toList();
         if (trades.isEmpty()) {
@@ -119,15 +136,15 @@ public class BacktestRunService {
         return priceDailyRepository.findByMarketAndTradeDateBetweenOrderByTickerAscTradeDateAsc(market, request.periodFrom(), request.periodTo());
     }
 
-    private List<SimulatedTrade> simulateTicker(List<PriceDailyEntity> rows, int holdingDays, BigDecimal targetPct, BigDecimal stopPct, BacktestCost cost, int minScore) {
-        // TASK-1: MA20 진입 조건 → score 기반 진입 (과거 윈도우만 사용, 미래참조 없음)
+    private List<SimulatedTrade> simulateTicker(MarketUniverseEntity universeEntity, List<PriceDailyEntity> rows, int holdingDays, BigDecimal targetPct, BigDecimal stopPct, BacktestCost cost, int minScore) {
+        // TASK-1: 진입 score를 라이브 추천 점수기(buildFeatureAsOf)로 산출 → AutoResearch 가중치가 metric에 반영된다. asOf 이하 데이터만 쓰므로 미래참조 없음.
         if (rows.size() < 21) {
             return List.of();
         }
 
         PriceDailyEntity entry = null;
         for (int i = 20; i < rows.size() - 1; i++) {
-            int score = computePriceScore(rows, i); // rows[0..i] 기반 score 계산 (미래봉 미사용)
+            int score = resolveScore(universeEntity, rows.get(i).getTradeDate()); // 스냅샷 우선 조회, 없으면 buildFeatureAsOf 재계산
             if (score >= minScore) {
                 entry = rows.get(i + 1);
                 break;
@@ -212,75 +229,13 @@ public class BacktestRunService {
                 || "AMEX".equalsIgnoreCase(market);
     }
 
-    // TASK-1: 과거 윈도우(rows[0..upTo])만으로 0-100 기술적 score 계산 (미래참조 없음)
-    private int computePriceScore(List<PriceDailyEntity> rows, int upTo) {
-        List<PriceDailyEntity> window = rows.subList(0, upTo + 1);
-        int size = window.size();
-
-        // MA 점수
-        int maScore;
-        if (size >= 20) {
-            BigDecimal close = window.get(size - 1).getClosePrice();
-            BigDecimal ma5 = averageClose(window.subList(size - 5, size));
-            BigDecimal ma20 = averageClose(window.subList(size - 20, size));
-            if (close.compareTo(ma5) >= 0 && ma5.compareTo(ma20) >= 0) maScore = 90;
-            else if (close.compareTo(ma20) >= 0) maScore = 75;
-            else if (close.compareTo(ma20.multiply(BigDecimal.valueOf(0.95))) < 0) maScore = 40;
-            else maScore = 58;
-        } else {
-            maScore = 50;
-        }
-
-        // RSI 점수
-        int rsiScore;
-        if (size >= 15) {
-            List<BigDecimal> closes = window.stream().map(PriceDailyEntity::getClosePrice).toList();
-            int start = closes.size() - 15;
-            BigDecimal gains = BigDecimal.ZERO;
-            BigDecimal losses = BigDecimal.ZERO;
-            for (int i = start + 1; i < closes.size(); i++) {
-                BigDecimal diff = closes.get(i).subtract(closes.get(i - 1));
-                if (diff.compareTo(BigDecimal.ZERO) > 0) gains = gains.add(diff);
-                else losses = losses.add(diff.abs());
-            }
-            BigDecimal rsi;
-            if (losses.compareTo(BigDecimal.ZERO) == 0) rsi = BigDecimal.valueOf(100);
-            else if (gains.compareTo(BigDecimal.ZERO) == 0) rsi = BigDecimal.ZERO;
-            else {
-                BigDecimal rs = gains.divide(losses, 8, java.math.RoundingMode.HALF_UP);
-                rsi = BigDecimal.valueOf(100).subtract(BigDecimal.valueOf(100).divide(BigDecimal.ONE.add(rs), 4, java.math.RoundingMode.HALF_UP));
-            }
-            if (rsi.compareTo(BigDecimal.valueOf(45)) >= 0 && rsi.compareTo(BigDecimal.valueOf(65)) <= 0) rsiScore = 88;
-            else if (rsi.compareTo(BigDecimal.valueOf(35)) >= 0 && rsi.compareTo(BigDecimal.valueOf(75)) <= 0) rsiScore = 72;
-            else if (rsi.compareTo(BigDecimal.valueOf(25)) >= 0 && rsi.compareTo(BigDecimal.valueOf(85)) <= 0) rsiScore = 52;
-            else rsiScore = 32;
-        } else {
-            rsiScore = 50;
-        }
-
-        // 거래량 z-score 점수
-        int volScore;
-        if (size >= 20) {
-            List<BigDecimal> vols = window.subList(size - 20, size).stream().map(PriceDailyEntity::getVolume).toList();
-            BigDecimal latest = vols.get(vols.size() - 1);
-            BigDecimal avg = vols.stream().reduce(BigDecimal.ZERO, BigDecimal::add).divide(BigDecimal.valueOf(vols.size()), 8, java.math.RoundingMode.HALF_UP);
-            double variance = vols.stream().mapToDouble(v -> Math.pow(v.subtract(avg).doubleValue(), 2)).average().orElse(0);
-            BigDecimal stdDev = BigDecimal.valueOf(Math.sqrt(variance));
-            if (stdDev.compareTo(BigDecimal.ZERO) == 0) {
-                volScore = 60;
-            } else {
-                BigDecimal z = latest.subtract(avg).divide(stdDev, 4, java.math.RoundingMode.HALF_UP);
-                if (z.compareTo(BigDecimal.valueOf(1.5)) >= 0) volScore = 90;
-                else if (z.compareTo(BigDecimal.ZERO) >= 0) volScore = 74;
-                else if (z.compareTo(BigDecimal.valueOf(-1.0)) < 0) volScore = 42;
-                else volScore = 58;
-            }
-        } else {
-            volScore = 50;
-        }
-
-        // MA 35%, RSI 35%, Volume 30% 가중 합산
-        return Math.min(100, (int) Math.round(maScore * 0.35 + rsiScore * 0.35 + volScore * 0.30));
+    private int resolveScore(MarketUniverseEntity entity, java.time.LocalDate date) {
+        // 스냅샷이 있으면 이미 저장된 totalScore 반환 — 다회 DB 조회 불필요, IC와 일관성 보장.
+        // 없으면 buildFeatureAsOf 재계산(폴백) — 스냅샷 적재 전 구간 지원.
+        String key = FeatureSnapshotEntity.buildKey(entity.getMarket(), entity.getTicker(), date);
+        return featureSnapshotRepository.findById(key)
+                .map(FeatureSnapshotEntity::getTotalScore)
+                .orElseGet(() -> universeFeatureBuilder.buildFeatureAsOf(entity, date).totalScore());
     }
 
     private int readSettingInt(String key, int defaultValue) {
@@ -308,13 +263,6 @@ public class BacktestRunService {
         } catch (Exception exception) {
             return defaultValue;
         }
-    }
-
-    private BigDecimal averageClose(List<PriceDailyEntity> rows) {
-        return rows.stream()
-                .map(PriceDailyEntity::getClosePrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .divide(BigDecimal.valueOf(rows.size()), 8, RoundingMode.HALF_UP);
     }
 
     private String buildMetricsJson(String strategy, String market, BacktestSimulationRequest request, int maxTickers, int holdingDays, BigDecimal targetPct, BigDecimal stopPct, int priceRows, int selectedCandidateCount, List<SimulatedTrade> trades) {

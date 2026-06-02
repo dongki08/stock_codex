@@ -64,8 +64,23 @@ public class KrxPreOpenJob { // KRX 장 전 브리핑 스케줄 작업을 정의
             int shortCount = schedulerSettingReader.getInt("recommendation.short.count", 3); // 단기 추천 개수를 조회한다.
             int longCount = schedulerSettingReader.getInt("recommendation.long.count", 3); // 장기 추천 개수를 조회한다.
             MarketUniverseSyncResponse universe = marketUniverseService.syncKrSymbols("ALL"); // 한국 상장 심볼을 동기화한다.
-            PriceDailySyncResponse daily = marketDataSyncService.syncDailyPrices("KOSPI", 30, 100); // KOSPI 일봉을 제한 수량으로 동기화한다.
+            PriceDailySyncResponse daily = marketDataSyncService.syncDailyPricesForPreOpen("KOSPI", 120, 100); // 장전에는 최신 증분만 확인하고 대량 bootstrap은 백필 잡에 맡긴다.
+            marketDataSyncService.syncDailyPricesForPreOpen("KOSDAQ", 120, 100); // KOSDAQ도 동일하게 처리한다.
             DevRecommendationGenerateResponse recommendations = devRecommendationGenerateService.generate("KOSPI", shortCount, longCount); // KOSPI 추천을 생성한다.
+            List<String> recLines = recommendations.recommendations().stream()
+                    .map(r -> {
+                        String marketLabel = ("KOSPI".equals(r.market()) || "KOSDAQ".equals(r.market())) ? "🇰🇷 국장" : "🇺🇸 미장";
+                        String displayName = r.name() != null ? r.name() : r.ticker();
+                        String pct = r.targetPrice() != null && r.entryPrice() != null && r.entryPrice().compareTo(java.math.BigDecimal.ZERO) != 0
+                                ? String.format("%+.1f%%", r.targetPrice().subtract(r.entryPrice()).divide(r.entryPrice(), 4, java.math.RoundingMode.HALF_UP).multiply(java.math.BigDecimal.valueOf(100)).doubleValue())
+                                : "";
+                        String termLabel = "SHORT".equals(r.term()) ? "단기" : "장기";
+                        return "[" + marketLabel + "] " + r.ticker() + " " + displayName + " " + termLabel
+                                + "\n🟢 진입 " + r.entryPrice().stripTrailingZeros().toPlainString()
+                                + "\n🎯 목표 " + r.targetPrice().stripTrailingZeros().toPlainString() + " " + pct
+                                + "\n🛑 손절 " + r.stopPrice().stripTrailingZeros().toPlainString();
+                    })
+                    .toList();
             notificationService.sendSchedulerEvent(
                     "krx-preopen",
                     "success",
@@ -76,7 +91,7 @@ public class KrxPreOpenJob { // KRX 장 전 브리핑 스케줄 작업을 정의
                             new NotificationMetric("일봉 저장", daily.upsertedCount() + "개"),
                             new NotificationMetric("추천 생성", recommendations.generatedRecommendationCount() + "건")
                     ),
-                    List.of("추천 IDs: " + recommendations.recommendationIds())
+                    recLines
             );
             log.info("KrxPreOpenJob 완료. universeSaved={}, dailySaved={}, recommendations={}", universe.upsertedCount(), daily.upsertedCount(), recommendations.generatedRecommendationCount()); // 작업 완료 로그를 출력한다.
         } catch (Exception exception) { // 예외를 잡는다.

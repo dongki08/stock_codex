@@ -142,6 +142,38 @@ class UniverseFeatureBuilderTest {
         assertThat(bottomJson.get("movingAverageScore").asInt()).isEqualTo(35);
     }
 
+    @Test
+    void buildFeatureAsOfScoreRespondsToWeightChanges() {
+        // 키스톤 회귀 가드: 백테스트가 호출하는 buildFeatureAsOf의 totalScore가 같은 가격 데이터에서
+        // 가중치만 바뀌면 달라져야 AutoResearch 루프(가중치 최적화)가 유효하다.
+        MarketUniverseEntity universe = universe("AAPL");
+        LocalDate asOf = LocalDate.now();
+        when(priceDailyRepository.findByMarketAndTickerAndTradeDateLessThanEqualOrderByTradeDateDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class)))
+                .thenReturn(uptrendHistory());
+        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtLessThanEqualOrderByPublishedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(Pageable.class))).thenReturn(List.<NewsArticleEntity>of());
+        when(disclosureEventRepository.findByMarketAndTickerAndDisclosedAtLessThanEqualOrderByDisclosedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(Pageable.class))).thenReturn(List.<DisclosureEventEntity>of());
+        when(macroObservationRepository.findByObservedDateLessThanEqualOrderByObservedDateDesc(eq(asOf), any(Pageable.class))).thenReturn(List.<MacroObservationEntity>of());
+        when(fundamentalMetricRepository.findByMarketAndTickerAndPeriodEndLessThanEqualOrderByPeriodEndDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class))).thenReturn(List.<FundamentalMetricEntity>of());
+
+        when(appSettingRepository.findById("recommendation.scoring.weights")).thenReturn(Optional.of(new AppSettingEntity(
+                "recommendation.scoring.weights",
+                "{\"value\":{\"liquidity\":0,\"price\":0,\"technical\":1,\"context\":0,\"fundamental\":0,\"dataQuality\":0},\"technical\":{\"ma\":1,\"rsi\":0,\"volume\":0,\"macd\":0,\"bollinger\":0},\"context\":{\"news\":0,\"disclosure\":0,\"macro\":0,\"fundamental\":0}}",
+                "weights",
+                "test"
+        )));
+        int technicalHeavy = builder.buildFeatureAsOf(universe, asOf).totalScore();
+
+        when(appSettingRepository.findById("recommendation.scoring.weights")).thenReturn(Optional.of(new AppSettingEntity(
+                "recommendation.scoring.weights",
+                "{\"value\":{\"liquidity\":1,\"price\":0,\"technical\":0,\"context\":0,\"fundamental\":0,\"dataQuality\":0},\"technical\":{\"ma\":1,\"rsi\":0,\"volume\":0,\"macd\":0,\"bollinger\":0},\"context\":{\"news\":0,\"disclosure\":0,\"macro\":0,\"fundamental\":0}}",
+                "weights",
+                "test"
+        )));
+        int liquidityHeavy = builder.buildFeatureAsOf(universe, asOf).totalScore();
+
+        assertThat(technicalHeavy).isNotEqualTo(liquidityHeavy);
+    }
+
     private MarketUniverseEntity universe(String ticker) {
         return new MarketUniverseEntity(
                 ticker,

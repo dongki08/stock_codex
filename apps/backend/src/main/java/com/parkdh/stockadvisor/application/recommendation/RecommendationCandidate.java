@@ -4,6 +4,7 @@ import java.math.BigDecimal; // 정밀 숫자 타입을 가져온다.
 
 public record RecommendationCandidate( // 추천 후보 값을 정의한다.
         String ticker, // 종목 코드를 보관한다.
+        String name, // 종목명을 보관한다.
         String market, // 시장 구분을 보관한다.
         BigDecimal lastPrice, // 최근 가격을 보관한다.
         BigDecimal marketCap, // 시가총액을 보관한다.

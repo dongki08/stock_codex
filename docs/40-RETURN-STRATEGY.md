@@ -1,9 +1,9 @@
 # 백엔드 수익률 개선 작업지시서
 
-> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 40(수익전략) · 상태 🟢 신규 작업지시 · 기존 결함이력은 [41-DEFECTS-AND-FIXES.md](41-DEFECTS-AND-FIXES.md)
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 40(수익전략) · 상태 🟢 완료 작업지시/후속 기준 · 기존 결함이력은 [41-DEFECTS-AND-FIXES.md](41-DEFECTS-AND-FIXES.md)
 >
 > **대상**: 이 문서를 읽는 AI/개발자가 현재 백엔드에 **바로 적용** 가능하도록 작성.
-> **코드 기준**: `apps/backend` · Spring Boot 3.3 · Java 21 · MSSQL · Flyway(최신 V8)
+> **코드 기준**: `apps/backend` · Spring Boot 3.3 · Java 21 · MSSQL · Flyway(최신 V10)
 > **읽는 법**: 각 TASK는 `대상 → 현황 → 문제 → 변경 → 검증` 순. 위에서부터 우선순위(P0→P3).
 > 모든 가중치/임계값은 `app_setting` 키-값으로 런타임 조정. 신규 기본값은 Flyway 마이그레이션 또는 `PUT /api/admin/settings/{key}`로 주입.
 
@@ -34,7 +34,9 @@ P3  TASK-8  regime 필터 기본 on + 지수 일봉 적재
 
 ---
 
-## TASK-1 (P0) — 백테스트 진입을 score 기반으로
+## TASK-1 (P0) — 백테스트 진입을 score 기반으로  ✅ 완료(2026-06-02)
+
+> **완료 메모**: 1차 구현은 임시 폴백(`computePriceScore`, MA/RSI/Vol 하드코딩)만 만들어 가중치를 안 읽었음 → 루프 여전히 무효였음. 2026-06-02에 `simulateTicker`가 `UniverseFeatureBuilder.buildFeatureAsOf(entity, tradeDate).totalScore()`(가중치 반영, PIT)로 진입 판단하도록 연결, `computePriceScore` 제거. 이제 가중치 변형이 `avgPnlPct`에 반영됨. 남은 한계: 백테스트 as-of replay는 라이브 `buildFeatures()`의 cross-sectional 보정 스냅샷을 완전히 재현하지 못함, 종목·일자별 DB 다회 조회 성능.
 
 **대상**: `application/backtest/BacktestRunService.java` (`simulateTicker:140`, `evaluateStrategy:99`)
 
@@ -53,7 +55,7 @@ P3  TASK-8  regime 필터 기본 on + 지수 일봉 적재
 
 ---
 
-## TASK-2 (P0) — Point-in-time 피처 스냅샷 + forward return
+## TASK-2 (P0) — Point-in-time 피처 스냅샷 + forward return ✅ 완료(2026-05-31)
 
 **대상**: 신규 테이블 + `UniverseFeatureBuilder`, 신규 스케줄러
 
@@ -86,7 +88,7 @@ CREATE INDEX ix_feature_snapshot_ticker ON feature_snapshot (market, ticker, as_
 
 ---
 
-## TASK-3 (P1) — 펀더멘털/매크로를 방향성 신호로
+## TASK-3 (P1) — 펀더멘털/매크로를 방향성 신호로 ✅ 완료(2026-05-31)
 
 **대상**: `UniverseFeatureBuilder.scoreFundamentals:166`, `scoreMacro:152`
 
@@ -113,7 +115,7 @@ if (metricCount >= 6) return 84;  // PER가 100이든 5든 동일 84점
 
 ---
 
-## TASK-4 (P1) — 뉴스 점수: 감성 주축 / 빈도 보조
+## TASK-4 (P1) — 뉴스 점수: 감성 주축 / 빈도 보조 ✅ 완료(2026-05-31)
 
 **대상**: `UniverseFeatureBuilder.scoreNews:103`, `applySentimentAdjustment:147` · `infrastructure/marketdata/news/SentimentAnalysisClient.java`(신규, 진행 중)
 
@@ -130,7 +132,7 @@ if (metricCount >= 6) return 84;  // PER가 100이든 5든 동일 84점
 
 ---
 
-## TASK-5 (P2) — cross-sectional 표준화
+## TASK-5 (P2) — cross-sectional 표준화 ✅ 완료(2026-05-31)
 
 **대상**: `UniverseFeatureBuilder.buildFeatures:55` (유니버스 일괄 계산 지점)
 
@@ -147,7 +149,7 @@ if (metricCount >= 6) return 84;  // PER가 100이든 5든 동일 84점
 
 ---
 
-## TASK-6 (P2) — IC(정보계수) 측정 + 가중치 가이드
+## TASK-6 (P2) — IC(정보계수) 측정 + 가중치 가이드 ✅ 완료(2026-05-31)
 
 **대상**: 신규 `application/research/FeatureICService.java` · `AutoresearchService.mutateWeights:392`
 
@@ -162,7 +164,7 @@ if (metricCount >= 6) return 84;  // PER가 100이든 5든 동일 84점
 
 ---
 
-## TASK-7 (P2) — 확신도·역변동성 포지션 사이징
+## TASK-7 (P2) — 확신도·역변동성 포지션 사이징 ✅ 완료(2026-05-31)
 
 **대상**: `application/recommendation/PricePredictor.java` · `RecommendationEntity`(비중 필드 추가 검토)
 
@@ -177,7 +179,7 @@ if (metricCount >= 6) return 84;  // PER가 100이든 5든 동일 84점
 
 ---
 
-## TASK-8 (P3) — regime 필터 기본 on + 지수 일봉 적재
+## TASK-8 (P3) — regime 필터 기본 on + 지수 일봉 적재 ✅ 완료(2026-05-31)
 
 **대상**: `RecommendationEngine.isMarketRegimeOk:85`, `indexTickerForMarket:105` · 시세 수집 파이프라인
 
@@ -199,6 +201,7 @@ if (metricCount >= 6) return 84;  // PER가 100이든 5든 동일 84점
 | 키 | 기본값 | 용도 | TASK |
 |---|---|---|---|
 | `backtest.entry.minScore` | 60 | 백테스트 진입 score 임계 | 1 |
+| `autoresearch.codex.enabled` | false | Codex 가중치 제안 사용(옵트인, 백테스트가 심판) | 6 |
 | `recommendation.regime.filter.enabled` | **true** | 200일선 regime 게이트 | 8 |
 | (기존) `recommendation.scoring.weights` | — | 종합/기술/컨텍스트 가중치 JSON | 3·4·5·6 |
 | (기존) `recommendation.sector.max` | 2 | 섹터당 최대 종목 | 7 |
@@ -215,6 +218,4 @@ if (metricCount >= 6) return 84;  // PER가 100이든 5든 동일 84점
 
 ## 한 줄 요약
 
-루프 토대(TASK-1·2)부터. 그전엔 어떤 가중치 튜닝도 노이즈 최적화. 토대 후 TASK-3·4·8로 알파·drawdown 즉시 개선, TASK-5·6·7로 정교화.
-
-
+TASK-1~8은 구현 완료. 현 후속 초점은 운영 데이터 누적 검증, 백테스트 as-of replay 성능, cross-sectional snapshot 재현성, Codex CLI 응답 안정화다.

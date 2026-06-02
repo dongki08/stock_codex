@@ -355,4 +355,4 @@ GET /api/ops/external-health
 - SEC EDGAR 호출은 `SEC_USER_AGENT`를 실제 연락 가능한 값으로 설정하는 편이 안전하다.
 - 외부 RSS/FRED/SEC 호출은 네트워크 상태와 제공자 정책에 따라 일시 실패할 수 있다.
 - SEC 펀더멘털은 `SEC_USER_AGENT`가 부적절하면 차단될 수 있다.
-- 실제 투자 판단 자동화 전에는 추천/Exit Confirm 결과를 반드시 수동 검토해야 한다.
+- 실제 투자 판단 자동화 전에는 추천 결과와 `ExitMonitorJob` 자동청산 결과를 반드시 수동 검토해야 한다.

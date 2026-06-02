@@ -1,6 +1,7 @@
 # stock_codex — 에이전트 부트 컨텍스트
 
-> 이 파일은 cwd가 이 repo 안일 때만 자동 로드된다. (전역 `~/.claude/CLAUDE.md`와 별개)
+> 이 파일은 cwd가 이 repo 안일 때 자동 로드된다.
+> **내용은 AGENTS.md와 CLAUDE.md를 동일하게 유지한다.** 한쪽 고치면 양쪽 맞출 것.
 > **세션 시작 시 먼저 [docs/00-INDEX.md](docs/00-INDEX.md)를 읽어라.** 모든 문서의 진입점이다.
 
 ## 프로젝트 한 줄
@@ -28,9 +29,9 @@
 
 - 공통 응답 = `ResultDto<T>` = `{ code, data, error_message }` (`global/dto/ResultDto.java`). `{success,...}` 아님.
 - **ExitConfirm 기능 제거됨** (V8). Exit 판정은 `ExitMonitorJob` 룰 기반(목표가/손절가/만료) 자동청산.
-- Flyway 최신 = V8. 마이그레이션은 추가만(기존 수정 금지), `ddl-auto: validate`.
+- Flyway 최신 = V10. 마이그레이션은 추가만(기존 수정 금지), `ddl-auto: validate`.
 - 외부 키 미설정 시 `dev-placeholder` 폴백 패턴 (Codex/KIS/DART/SEC/sentiment).
-- **현재 최대 약점**: 백테스트 미래참조 → AutoResearch 루프 사실상 무효. 수익률 작업은 40-RETURN-STRATEGY TASK-1·2(토대)부터.
+- **AutoResearch 루프**: 2026-06-02 유효화됨. 백테스트가 라이브 점수기(`buildFeatureAsOf`)로 진입 판단 → 가중치 변형이 metric에 반영. 다음 약점: raw as-of 점수 기반 replay 성능과 cross-sectional snapshot 활용 고도화.
 
 ## 문서 관리 규칙 (문서 손댈 때)
 

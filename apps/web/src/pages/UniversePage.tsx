@@ -118,7 +118,7 @@ export function UniversePage() {
   const dailySyncMutation = useMutation({
     mutationFn: () => syncDailyPrices(dailySyncMarket, dailySyncLimit, dailySyncDays),
     onSuccess: (result) => {
-      setMessage(`${result.market} 일봉 ${result.upsertedCount}개를 저장했습니다. 대상 후보 ${result.candidateCount}개`);
+      setMessage(`${result.market} 일봉 ${result.upsertedCount}/${result.fetchedCount}개 저장. 외부조회 ${result.requestedTickerCount}개, 최신스킵 ${result.skippedUpToDateCount}개, 백필대기 ${result.skippedNoHistoryCount}개`);
       queryClient.invalidateQueries({ queryKey: ["universe"] });
       queryClient.invalidateQueries({ queryKey: ["universe-features"] });
     },

@@ -1,8 +1,5 @@
-export type ApiResult<T> = {
-  code: number;
-  data?: T;
-  error_message?: string;
-};
+import { getAuthHeader } from "./auth";
+import { unwrapResult } from "./result";
 
 export type AdminSetting = {
   key: string;
@@ -18,8 +15,6 @@ export type AuditLog = {
   beforeJson: string;
   afterJson: string;
 };
-
-import { getAuthHeader } from "./auth";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -38,13 +33,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error("UNAUTHORIZED");
   }
 
-  const result = (await response.json()) as ApiResult<T>;
-
-  if (!response.ok || result.code !== 200) {
-    throw new Error(result.error_message ?? "API 요청에 실패했습니다.");
-  }
-
-  return result.data as T;
+  return unwrapResult<T>(response);
 }
 
 export function getAdminSettings() {

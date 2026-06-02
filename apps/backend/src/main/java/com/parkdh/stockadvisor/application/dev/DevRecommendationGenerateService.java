@@ -13,12 +13,14 @@ import com.parkdh.stockadvisor.global.exception.CustomException;
 import com.parkdh.stockadvisor.infrastructure.persistence.autoresearch.StrategyVersionRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.prediction.PredictionRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.recommendation.RecommendationRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.universe.MarketUniverseRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -36,9 +38,31 @@ public class DevRecommendationGenerateService {
     private final RecommendationRepository recommendationRepository;
     private final RecommendationConfidenceService recommendationConfidenceService;
     private final StrategyVersionRepository strategyVersionRepository;
+    private final MarketUniverseRepository marketUniverseRepository;
 
     @Transactional
     public DevRecommendationGenerateResponse generate(String market, Integer shortCount, Integer longCount) {
+        LocalDate today = LocalDate.now();
+        String modelVersion = resolveModelVersion();
+        List<RecommendationEntity> todayRecs = recommendationRepository.findByModelVersionAndGeneratedAtBetween(
+                modelVersion, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        if (!todayRecs.isEmpty()) { // 당일 이미 추천 생성됐으면 중복 저장 없이 기존 결과 반환한다.
+            Map<String, String> nameByKey = marketUniverseRepository.findByTradableAndDelistedAtIsNull(true).stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            entity -> entity.getMarket() + ":" + entity.getTicker(),
+                            entity -> entity.getName() == null ? entity.getTicker() : entity.getName(),
+                            (a, b) -> a,
+                            LinkedHashMap::new));
+            List<DevRecommendationGenerateResponse.RecommendationSummary> summaries = todayRecs.stream()
+                    .map(r -> new DevRecommendationGenerateResponse.RecommendationSummary(
+                            r.getId(), r.getTicker(), nameByKey.getOrDefault(r.getMarket() + ":" + r.getTicker(), r.getTicker()), r.getMarket(), r.getTerm(),
+                            r.getEntryPrice(), r.getTargetPrice(), r.getStopPrice()))
+                    .toList();
+            List<Long> existingIds = todayRecs.stream().map(RecommendationEntity::getId).toList();
+            return new DevRecommendationGenerateResponse(
+                    market == null || market.isBlank() ? "ALL" : market,
+                    todayRecs.size(), 0, todayRecs.size(), List.of(), existingIds, summaries);
+        }
         int safeShortCount = normalizeCount(shortCount, 3, "short recommendation count");
         int safeLongCount = normalizeCount(longCount, 3, "long recommendation count");
         int candidateLimit = Math.max(safeShortCount, safeLongCount) * 3;
@@ -54,7 +78,6 @@ public class DevRecommendationGenerateService {
             throw new CustomException("No recommendation candidates have usable price data.", 422);
         }
 
-        String modelVersion = resolveModelVersion();
         List<PredictionEntity> predictions = predictionRepository.saveAll(
                 pricedCandidates.stream().map(candidate -> createPrediction(candidate, modelVersion, shortPredictionCache.get(candidate.ticker()))).toList());
         List<RecommendationDraft> shortDrafts = normalizePositionWeights(pricedCandidates.stream()
@@ -72,13 +95,23 @@ public class DevRecommendationGenerateService {
 
         List<Long> predictionIds = predictions.stream().map(PredictionEntity::getId).toList();
         List<Long> recommendationIds = joinRecommendationIds(shortRecommendations, longRecommendations);
+        Map<String, String> nameByTicker = pricedCandidates.stream()
+                .filter(c -> c.name() != null)
+                .collect(java.util.stream.Collectors.toMap(RecommendationCandidate::ticker, RecommendationCandidate::name, (a, b) -> a));
+        List<DevRecommendationGenerateResponse.RecommendationSummary> summaries = java.util.stream.Stream
+                .concat(shortRecommendations.stream(), longRecommendations.stream())
+                .map(r -> new DevRecommendationGenerateResponse.RecommendationSummary(
+                        r.getId(), r.getTicker(), nameByTicker.get(r.getTicker()), r.getMarket(), r.getTerm(),
+                        r.getEntryPrice(), r.getTargetPrice(), r.getStopPrice()))
+                .toList();
         return new DevRecommendationGenerateResponse(
                 market == null || market.isBlank() ? "ALL" : market,
                 pricedCandidates.size(),
                 predictionIds.size(),
                 recommendationIds.size(),
                 predictionIds,
-                recommendationIds
+                recommendationIds,
+                summaries
         );
     }
 
