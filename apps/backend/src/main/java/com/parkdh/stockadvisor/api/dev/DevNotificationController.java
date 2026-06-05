@@ -9,9 +9,13 @@ import com.parkdh.stockadvisor.infrastructure.persistence.notification.Notificat
 import com.parkdh.stockadvisor.scheduler.KrxPreOpenJob;
 import com.parkdh.stockadvisor.scheduler.UsCloseSummaryJob;
 import com.parkdh.stockadvisor.scheduler.UsPreOpenJob;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -23,6 +27,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 
+@Hidden
 @RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/dev/notifications")
@@ -72,6 +77,15 @@ public class DevNotificationController {
     public ResultDto<String> triggerUsClose() {
         usCloseSummaryJob.trigger();
         return ResultDto.success("UsCloseSummaryJob triggered");
+    }
+
+    @Operation(summary = "오늘 알림 로그 삭제 (dedup 리셋)", description = "오늘 발송된 notification_log를 삭제해 동일 내용 재발송을 허용한다.")
+    @Transactional
+    @DeleteMapping("/logs/today")
+    public ResultDto<String> deleteTodayLogs() {
+        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        int deleted = notificationLogRepository.deleteBysentAtGreaterThanEqual(todayStart);
+        return ResultDto.success("deleted=" + deleted);
     }
 
     private String hashText(String text) {

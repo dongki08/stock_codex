@@ -56,7 +56,7 @@ public class DevRecommendationGenerateService {
             List<DevRecommendationGenerateResponse.RecommendationSummary> summaries = todayRecs.stream()
                     .map(r -> new DevRecommendationGenerateResponse.RecommendationSummary(
                             r.getId(), r.getTicker(), nameByKey.getOrDefault(r.getMarket() + ":" + r.getTicker(), r.getTicker()), r.getMarket(), r.getTerm(),
-                            r.getEntryPrice(), r.getTargetPrice(), r.getStopPrice()))
+                            r.getEntryPrice(), r.getTargetPrice(), r.getStopPrice(), r.getExpectedExitAt()))
                     .toList();
             List<Long> existingIds = todayRecs.stream().map(RecommendationEntity::getId).toList();
             return new DevRecommendationGenerateResponse(
@@ -65,26 +65,32 @@ public class DevRecommendationGenerateService {
         }
         int safeShortCount = normalizeCount(shortCount, 3, "short recommendation count");
         int safeLongCount = normalizeCount(longCount, 3, "long recommendation count");
-        int candidateLimit = Math.max(safeShortCount, safeLongCount) * 3;
-        List<RecommendationCandidate> candidates = recommendationEngine.selectTopCandidates(market, candidateLimit);
-        if (candidates.isEmpty()) {
+        List<RecommendationCandidate> shortPool = recommendationEngine.selectTopCandidatesForTerm(market, safeShortCount * 3, "SHORT");
+        List<RecommendationCandidate> longPool = recommendationEngine.selectTopCandidatesForTerm(market, safeLongCount * 3, "LONG");
+        if (shortPool.isEmpty() && longPool.isEmpty()) {
             throw new CustomException("No recommendation candidates are available. Seed or collect universe data first.", 404);
         }
-        Map<String, PredictedRecommendation> shortPredictionCache = new LinkedHashMap<>();
-        List<RecommendationCandidate> pricedCandidates = candidates.stream()
-                .filter(candidate -> cacheShortPrediction(candidate, shortPredictionCache))
+        Map<String, PredictedRecommendation> predictionCache = new LinkedHashMap<>();
+        List<RecommendationCandidate> pricedShortPool = shortPool.stream()
+                .filter(candidate -> cacheShortPrediction(candidate, predictionCache))
                 .toList();
-        if (pricedCandidates.isEmpty()) {
+        List<RecommendationCandidate> pricedLongPool = longPool.stream()
+                .filter(candidate -> cacheShortPrediction(candidate, predictionCache))
+                .toList();
+        if (pricedShortPool.isEmpty() && pricedLongPool.isEmpty()) {
             throw new CustomException("No recommendation candidates have usable price data.", 422);
         }
-
+        List<RecommendationCandidate> allPricedUnique = java.util.stream.Stream
+                .concat(pricedShortPool.stream(), pricedLongPool.stream())
+                .collect(java.util.stream.Collectors.toMap(RecommendationCandidate::ticker, c -> c, (a, b) -> a, LinkedHashMap::new))
+                .values().stream().toList();
         List<PredictionEntity> predictions = predictionRepository.saveAll(
-                pricedCandidates.stream().map(candidate -> createPrediction(candidate, modelVersion, shortPredictionCache.get(candidate.ticker()))).toList());
-        List<RecommendationDraft> shortDrafts = normalizePositionWeights(pricedCandidates.stream()
+                allPricedUnique.stream().map(candidate -> createPrediction(candidate, modelVersion, predictionCache.get(candidate.ticker()))).toList());
+        List<RecommendationDraft> shortDrafts = normalizePositionWeights(pricedShortPool.stream()
                 .limit(safeShortCount)
-                .map(candidate -> createRecommendationDraft(candidate, "SHORT", modelVersion, shortPredictionCache.get(candidate.ticker())))
+                .map(candidate -> createRecommendationDraft(candidate, "SHORT", modelVersion, predictionCache.get(candidate.ticker())))
                 .toList());
-        List<RecommendationDraft> longDrafts = normalizePositionWeights(pricedCandidates.stream()
+        List<RecommendationDraft> longDrafts = normalizePositionWeights(pricedLongPool.stream()
                 .limit(safeLongCount)
                 .map(candidate -> createRecommendationDraft(candidate, "LONG", modelVersion, null))
                 .toList());
@@ -95,18 +101,18 @@ public class DevRecommendationGenerateService {
 
         List<Long> predictionIds = predictions.stream().map(PredictionEntity::getId).toList();
         List<Long> recommendationIds = joinRecommendationIds(shortRecommendations, longRecommendations);
-        Map<String, String> nameByTicker = pricedCandidates.stream()
+        Map<String, String> nameByTicker = allPricedUnique.stream()
                 .filter(c -> c.name() != null)
                 .collect(java.util.stream.Collectors.toMap(RecommendationCandidate::ticker, RecommendationCandidate::name, (a, b) -> a));
         List<DevRecommendationGenerateResponse.RecommendationSummary> summaries = java.util.stream.Stream
                 .concat(shortRecommendations.stream(), longRecommendations.stream())
                 .map(r -> new DevRecommendationGenerateResponse.RecommendationSummary(
                         r.getId(), r.getTicker(), nameByTicker.get(r.getTicker()), r.getMarket(), r.getTerm(),
-                        r.getEntryPrice(), r.getTargetPrice(), r.getStopPrice()))
+                        r.getEntryPrice(), r.getTargetPrice(), r.getStopPrice(), r.getExpectedExitAt()))
                 .toList();
         return new DevRecommendationGenerateResponse(
                 market == null || market.isBlank() ? "ALL" : market,
-                pricedCandidates.size(),
+                allPricedUnique.size(),
                 predictionIds.size(),
                 recommendationIds.size(),
                 predictionIds,

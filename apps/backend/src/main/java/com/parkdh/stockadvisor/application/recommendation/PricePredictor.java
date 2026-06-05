@@ -22,6 +22,7 @@ import java.util.Optional;
 @Service
 public class PricePredictor {
     private static final int VOLATILITY_LOOKBACK = 20;
+    private static final String SCORING_WEIGHTS_KEY = "recommendation.scoring.weights";
 
     private final PriceDailyRepository priceDailyRepository;
     private final AppSettingRepository appSettingRepository;
@@ -36,7 +37,9 @@ public class PricePredictor {
         TradingCost cost = resolveTradingCost(candidate.market());
         BigDecimal targetPrice = costAdjustedExitPrice(entryPrice, targetMultiplier, cost).setScale(4, RoundingMode.HALF_UP);
         BigDecimal stopPrice = costAdjustedExitPrice(entryPrice, stopMultiplier, cost).setScale(4, RoundingMode.HALF_UP);
-        LocalDate expectedExitAt = "SHORT".equals(term) ? LocalDate.now().plusDays(5) : LocalDate.now().plusMonths(6);
+        int shortDays = readHoldingParam("shortHoldingDays", 5);
+        int longMonths = readHoldingParam("longHoldingMonths", 6);
+        LocalDate expectedExitAt = "SHORT".equals(term) ? LocalDate.now().plusDays(shortDays) : LocalDate.now().plusMonths(longMonths);
         String pricingMethod = resolvePricingMethod(candidate, history) + "-cost-adjusted";
         BigDecimal volatilityPercent = volatilityPct.multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP);
         BigDecimal positionSizingScore = calculatePositionSizingScore(candidate.score(), volatilityPct);
@@ -92,6 +95,17 @@ public class PricePredictor {
                 || "NASDAQ".equalsIgnoreCase(market)
                 || "NYSE".equalsIgnoreCase(market)
                 || "AMEX".equalsIgnoreCase(market);
+    }
+
+    private int readHoldingParam(String field, int defaultValue) {
+        try {
+            Optional<AppSettingEntity> setting = appSettingRepository.findById(SCORING_WEIGHTS_KEY);
+            if (setting.isEmpty()) return defaultValue;
+            JsonNode node = objectMapper.readTree(setting.get().getValueJson()).path(field);
+            return node.isNumber() ? node.asInt(defaultValue) : defaultValue;
+        } catch (Exception e) {
+            return defaultValue;
+        }
     }
 
     private BigDecimal readSettingDecimal(String key, String field, BigDecimal defaultValue) {

@@ -17,6 +17,63 @@
 
 ---
 
+### 2026-06-05 — AutoResearch holding period 자동 최적화 (Option C)
+- 무엇: 단기(shortHoldingDays)/장기(longHoldingMonths) 보유 기간을 AutoResearch mutation에 포함, 데이터 축적 시 자동 최적화
+- 왜: 기존 5일/6개월 하드코딩 → 백테스트 기반으로 최적 기간 탐색
+- 변경: `PricePredictor.java` — 하드코딩 제거, `recommendation.scoring.weights` JSON에서 reading. `AutoresearchService.java` — DEFAULT_WEIGHTS_JSON에 두 필드 추가, `mutateWeights()`에서 40% 확률 ±1 변형(shortDays: 3~14, longMonths: 2~12), backtest loop에서 proposed shortHoldingDays를 holdingDays로 반영
+- 후속: DB의 기존 weights row에 새 필드 없으면 자동 default(5, 6) 폴백. AutoResearch 첫 실행 후 champion weights에 포함돼 영속화
+
+---
+
+### 2026-06-04 — Codex 뉴스·공시 관계 분석을 추천 보조 신호로 연결
+- 무엇: 시장별 상위 후보의 당일 뉴스·공시를 Codex 한 번으로 관계 분석하고 종목별 방향·신뢰도·위험도·점수·요약을 `context_relation_analysis`에 저장. 기존 컨텍스트 점수와 70:30으로 혼합하고 프리오픈 Telegram 추천에 AI 관계 요약을 표시.
+- 왜: 정형 파싱과 가격 계산은 룰 엔진에 유지하면서, 여러 뉴스와 공시 사이의 강화·상충 관계만 AI가 해석하도록 역할을 분리하기 위함.
+- 변경: `ContextRelationAnalysisService`·엔티티·저장소, Flyway V13, `MarketDataCollectionJob`, `UniverseFeatureBuilder`, KRX/US 프리오픈 Telegram, 관련 설계·계획 문서와 회귀 테스트.
+- 검증: Codex 성공 JSON 저장, 실패 무저장 fallback, 당일/PIT 관계 점수 혼합, 시장별 수집 후 분석 호출 회귀 테스트. `apps/backend` `.\gradlew.bat test --rerun-tasks --console=plain` BUILD SUCCESSFUL.
+
+### 2026-06-04 — 한국·미국 뉴스 멀티소스 수집
+- 무엇: 한국 종목은 Google News RSS + Naver 뉴스 검색 API, 미국 종목은 Yahoo Finance RSS + Google News RSS를 함께 수집하도록 확장. 출처별 기본 5건을 받아 URL 중복 제거 후 종목당 최대 10건을 최신순 저장.
+- 왜: 단일 뉴스 제공자 누락과 편향을 줄이고 종목별 당일 뉴스 커버리지를 높이기 위함.
+- 변경: `RssNewsClient` 출처별 호출 분리, 신규 `NaverNewsProperties`·`NaverNewsClient`, `MarketDataCollectionService` 병합/중복 제거, Naver 환경변수 설정, 회귀 테스트·설계/구현 계획·현행 문서.
+- 검증: RSS 출처 URL, Naver 당일/KST/HTML 정리, KR/US 병합·중복 제거 테스트 추가. `apps/backend` `.\gradlew.bat test --rerun-tasks --console=plain` BUILD SUCCESSFUL. 최종 서버 실제 호출에서 AAPL `MULTI_SOURCE_NEWS` 5건 저장, 삼성전자 `MULTI_SOURCE_NEWS` 0건 정상 종료. Naver는 키 미설정 fallback 확인.
+- 후속: `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` 입력 후 실제 한국 Naver 뉴스 수신 확인.
+
+### 2026-06-04 — 뉴스 수집을 KST 당일 기준으로 제한
+- 무엇: Google News/Yahoo Finance RSS 발행 시각을 KST로 정규화하고 수집 실행일 당일 뉴스만 저장하도록 변경. 한국 종목은 `market_universe.name + ticker + 주식` 검색어를 사용하며, 추천·PIT feature·Telegram DailyBrief도 기준일 당일 뉴스만 사용.
+- 왜: 하루 단위 추천에서 오래된 뉴스가 오늘의 추천 점수를 왜곡하지 않게 하고, 종목코드만 검색할 때 발생하는 한국 뉴스 검색 정확도 저하를 줄이기 위함.
+- 변경: `RssNewsClient`, `MarketDataCollectionService`, `NewsArticleRepository`, `UniverseFeatureBuilder`, `DailyBriefService`, `MarketDataCollectionJob`, `AdminSettingService`, Flyway V11~V12, 관련 테스트·현행 문서. 시장별 뉴스 후보 기본값은 거래대금 상위 5개에서 20개로 확장하고 누락 설정 키도 생성.
+- 검증: RSS 검색어/시간대·당일 필터, 회사명 전달, 뉴스 API·DailyBrief·기준일 feature 당일 조회 회귀 테스트 추가. 실제 AAPL RSS 동기화/조회 결과 10건의 발행일이 모두 `2026-06-04` KST였고, Flyway V12 적용 후 `collection.news.tickersPerMarket={"value":20}` 확인. `apps/backend` `.\gradlew.bat test --console=plain` BUILD SUCCESSFUL.
+
+### 2026-06-04 — KRX OpenAPI 국장 일봉 수집 경로 추가
+- 무엇: KRX OpenAPI `유가증권/코스닥 일별매매정보`를 날짜·시장 단위로 조회하는 클라이언트와 저장 경로를 추가. KOSPI/KOSDAQ 전체 row를 `price_daily`에 upsert하고 `market_universe`의 최근가·거래대금·시총도 보강하도록 연결. `KrxPreOpenJob`은 08:30 프리오픈에서 KRX OpenAPI 일자 단위 수집을 우선 사용하고, 휴장일 0건이면 실제 데이터가 있는 최근 거래일까지 역탐색하며 오류 시 기존 KIS 증분 동기화로 fallback한다. `DailyPriceBackfillJob`도 KR 백필에서 KRX OpenAPI range 수집을 우선 사용한다.
+- 왜: KIS 일봉 조회가 종목별 rate limit에 걸려 국장 전체 백필/프리오픈 플로우가 느려지는 문제를 제거하기 위함.
+- 변경: `KrxOpenApiProperties`, `KrxOpenApiClient`, `MarketDataSyncService`, `KrxPreOpenJob`, `DailyPriceBackfillJob`, `application.yml`, `application-local.yml.example`, 신규/갱신 테스트.
+- 검증: 실제 키 요청으로 `2026-06-02` KOSPI 948건·KOSDAQ 1,822건 수신 확인. `2026-06-03` 휴장 0건 회귀 테스트 추가. 임시 8084 서버에서 `/api/ops/jobs/krx-preopen/trigger` 실운영 실행 결과 유니버스 2,657개 갱신·추천 4건 생성·작업 완료 확인. Telegram은 오늘 동일 성공 알림이 이미 `SENT`라 중복 방지로 재발송되지 않음. `apps/backend` `.\gradlew.bat test --console=plain` BUILD SUCCESSFUL. 새 코드 백엔드 8083 기동 확인.
+- 후속: 다음 평일 08:30 실 cron에서 KRX OpenAPI 수집·추천·Telegram 발송을 확인.
+
+### 2026-06-04 — 20-API.md · 21-API-QUICK.md 전면 재작성
+- 무엇: 실제 코드 현황 기준으로 두 문서 전면 재작성. 설정 키 전체 목록, Swagger 가시성 범례(✅/🔒/🚫), Job 트리거 API, 내부 전용·개발 전용 엔드포인트 구분, 스케줄러 전체 목록 추가.
+- 왜: 코드 변경(KIS delay 설정화, 내부 POST hidden, Job 트리거 API 신규)으로 문서가 구현과 불일치.
+- 변경: `docs/20-API.md`, `docs/21-API-QUICK.md`
+
+---
+
+### 2026-06-04 — Swagger 대폭 정리: 내부·개발용 컨트롤러 7개 완전 숨김
+- 무엇: `@Hidden` 클래스레벨 적용 → `DevRecommendationGenerateController`, `DevUniverseSeedController`, `DevBriefGenerateController`, `DevNotificationController`, `InstrumentController`, `UniverseFeatureController`, `PredictionController` 7개 Swagger에서 완전 제거
+- 왜: 관리자 Swagger에 개발용/내부 엔드포인트가 섞여 핵심 설정·모니터링 API 찾기 어려웠음
+- 변경: 상기 7개 컨트롤러 파일
+- 검증: `gradlew.bat compileJava` BUILD SUCCESSFUL
+
+---
+
+### 2026-06-04 — API 정리: KIS 딜레이 설정화 + 내부 POST Swagger 숨기기 + Job 수동 트리거
+- 무엇: (1) KIS 일봉 호출 딜레이 600ms 하드코딩 → `collection.kis.dailyPrice.delayMs` AdminSetting 키로 추출. (2) 내부 플로우 전용 POST/PUT 8개(`recommendation`, `prediction`, `evaluation`, `backtest`, `autoresearch`, `brief`, `codex-call`, `notification-log`) Swagger에서 `hidden=true`로 숨김. (3) `POST /api/ops/jobs/{jobName}/trigger` 추가 — `krx-preopen`, `us-preopen`, `backfill-kr`, `backfill-us`, `feature-snapshot` 5개 Job 수동 트리거, 비동기 실행 후 즉시 응답.
+- 왜: 관리자 입장에서 Swagger가 너무 복잡하고, KIS 제한 조정 시 재배포가 필요했으며, Job 재실행을 위해 서버 재시작이 필요했음.
+- 변경: `MarketDataSyncService`, `AdminSettingService`, `OpsJobTriggerController`(신규), `DailyPriceBackfillJob`, `FeatureSnapshotJob`, `RecommendationController`, `PredictionController`, `EvaluationController`, `BacktestRunController`, `AutoresearchController`, `DailyBriefController`, `CodexCallController`, `NotificationLogController`
+- 검증: `gradlew.bat compileJava` BUILD SUCCESSFUL.
+
+---
+
 ### 2026-06-02 — 추천 알림 아이콘 포맷 적용
 - 무엇: 장전 추천 Telegram 메시지에 시장/진입/목표/손절 아이콘을 적용. 운영 스케줄러 KRX/US 알림 상세도 `🇰🇷/🇺🇸`, `🟢 진입`, `🎯 목표`, `🛑 손절` 줄바꿈 포맷으로 정렬. 같은 날 중복 추천 재사용 시에도 회사명이 빠지지 않도록 `DevRecommendationGenerateService`의 기존 추천 응답에 `market_universe` 회사명을 매핑.
 - 왜: 티커·가격이 한 줄에 몰리면 모바일 Telegram에서 읽기 어려워, 장전 30분 전 실전 알림을 빠르게 스캔할 수 있게 하기 위함.

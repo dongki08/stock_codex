@@ -1,8 +1,8 @@
 # Stock Advisor 작업명세서
 
-> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 11(로드맵) · 상태 🟢 현행(§0=2026-06-02 델타, §1↓=05-22 스냅샷)
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 11(로드맵) · 상태 🟢 현행(§0=2026-06-04 델타, §1↓=05-22 스냅샷)
 >
-> 작성 기준: 2026-05-22 (아래 §0 = 2026-06-02 재검토 델타)
+> 작성 기준: 2026-05-22 (아래 §0 = 2026-06-04 재검토 델타)
 
 ## 📍 단계별 진행 맵 (어디까지 왔나 — 한눈에)
 
@@ -34,11 +34,12 @@
 
 ---
 
-## 0. 2026-06-02 갱신 델타 (이후 변경분)
+## 0. 2026-06-04 갱신 델타 (이후 변경분)
 
 > §1 이하 본문은 2026-05-22 스냅샷. 그 뒤 코드 변경 핵심만 여기 정리. 충돌 시 이 절·코드가 우선.
 
-- **마이그레이션 V7~V10 적용** — V7 `market_universe.delisted_at`, V8 `exit_confirm_log` 제거, V9 `feature_snapshot`, V10 `market_universe.name` 확장.
+- **마이그레이션 V7~V13 적용** — V7 `market_universe.delisted_at`, V8 `exit_confirm_log` 제거, V9 `feature_snapshot`, V10 `market_universe.name` 확장, V11~V12 뉴스 수집 범위 확장, V13 `context_relation_analysis` 추가.
+- **Codex 뉴스·공시 관계 분석 연결** — 시장별 상위 후보를 하루 최대 4회 Codex 호출로 분석해 종목별 구조화 신호를 저장. 기존 컨텍스트 점수와 70:30으로 혼합하고 프리오픈 Telegram 추천 근거에 표시.
 - **ExitConfirm 기능 제거** — `ExitConfirmService`/`ExitConfirmLogEntity`/`ExitConfirmLogRepository`/DTO 삭제. Exit 판정은 `ExitMonitorJob`의 룰 기반(목표가/손절가/만료)으로 일원화.
 - **AutoResearch 루프 본체 완성·유효화** — 가중치 mutation→백테스트→챔피언 승격/롤백(`AutoresearchService`). 2026-06-02부터 백테스트 진입 점수가 `buildFeatureAsOf`를 통해 현재 가중치를 읽는다.
 - **비용 반영 PnL** — 거래세/수수료/슬리피지/환전 스프레드 반영(`PricePredictor`, `BacktestRunService`).
@@ -61,6 +62,9 @@
 - **2026-06-02 AutoResearch 루프 유효화** — 백테스트 진입 점수가 `UniverseFeatureBuilder.buildFeatureAsOf(entity, tradeDate).totalScore()`를 사용해 `recommendation.scoring.weights` 변형이 metric에 반영됨. `feature_snapshot` 우선 조회 + 폴백 재계산 적용. `gradlew test` BUILD SUCCESSFUL.
 - **2026-06-02 문서/설정 정합성 정리** — `AGENTS.md`/`CLAUDE.md` 동기화, 현행 문서 Flyway V10/API 경로 보정, `application-local.yml.example`도 `ddl-auto: validate`로 정렬, 프론트 `ApiResult` 타입 중앙화. `gradlew test`, `npm run build` BUILD SUCCESSFUL.
 - **2026-06-02 일봉 동기화 최적화** — `MarketDataSyncService`가 DB 최신 거래일을 먼저 확인해 이미 최신인 종목은 외부 조회를 스킵하고, 장전 프리오픈 작업은 오래 비어 있는 히스토리 bootstrap을 하지 않도록 분리. `DailyPriceBackfillJob` 추가: KRX 18:10, US 07:20에 비어 있거나 오래된 일봉 히스토리를 장후 백필. 응답에 `requestedTickerCount`, `skippedUpToDateCount`, `skippedNoHistoryCount`, `targetDate`, `mode` 추가.
+- **2026-06-04 KRX OpenAPI 국장 일봉 경로 추가** — `KrxOpenApiClient`가 KRX `유가증권/코스닥 일별매매정보`를 날짜·시장 단위로 조회해 KOSPI/KOSDAQ 전체 row를 `price_daily`에 저장하고 `market_universe` 최근가·거래대금·시총을 보강. `KrxPreOpenJob`은 휴장일 0건이면 최근 실거래일까지 역탐색하고, `DailyPriceBackfillJob`도 KRX OpenAPI를 우선 사용하며 오류 시 기존 KIS 종목별 동기화로 fallback. 실제 `2026-06-02` KOSPI 948건·KOSDAQ 1,822건 수신 및 `gradlew test` BUILD SUCCESSFUL.
+- **2026-06-04 당일 뉴스 수집·점수화 적용** — RSS 발행 시각을 KST로 정규화하고 수집 당일 뉴스만 `news_article`에 저장한다. 한국 종목 검색어는 `회사명 종목코드 주식`으로 보강하고, 뉴스 조회 API·추천·PIT feature·Telegram DailyBrief도 해당 기준일 당일 뉴스만 사용한다. 시장별 거래대금 상위 뉴스 후보 기본값은 5개에서 20개로 확장하고 누락 설정 키도 생성(V11~V12). `gradlew test` BUILD SUCCESSFUL.
+- **2026-06-04 뉴스 멀티소스 확장** — 한국은 Google News RSS + Naver 뉴스 검색 API, 미국은 Yahoo Finance RSS + Google News RSS를 병합한다. 출처별 기본 5건, URL 중복 제거 후 종목당 최대 10건을 저장하며 한 출처 실패 시 다른 출처 결과는 유지한다. Naver 키 미설정 시 Google만 사용하는 fallback 적용. `gradlew test` BUILD SUCCESSFUL.
 
 ### 2026-05-29 코드 감사 결과 (실측)
 
@@ -70,7 +74,7 @@
 | application 서비스 | 18 | NotificationService·NotificationLogService 포함 |
 | infra 클라이언트 | 13 | Dart·Sentiment·ExternalApiPing 신규 |
 | 스케줄러 | 7 + SettingReader | KRX/US 프리오픈·US마감·수집·일봉백필·AutoResearch·ExitMonitor |
-| Flyway | V1~V10 | V9 `feature_snapshot`, V10 `market_universe.name` 확장 |
+| Flyway | V1~V13 | V9 `feature_snapshot`, V10 이름 확장, V11~V12 뉴스 범위 확장, V13 관계 분석 |
 | 테스트 | 24+ | `gradlew test` 최신 작업트리 통과 |
 | 프론트 화면 | 7 | Admin/Backtests/Instruments/MarketData/Recommendations/Stats/Universe |
 
@@ -114,7 +118,7 @@
 | 스케줄러 골격 | 부분 완료 | KRX/US 프리오픈 Job이 후보군/일봉/추천/알림 플로우를 실행하고 ExitMonitor가 현재가 스냅샷/목표가·손절가·만료 자동청산을 처리 |
 | BasicAuth/Actuator | 부분 완료 | `/api/admin/**`, `/api/ops/**`, `/actuator/**` BasicAuth 보호, `/api/dev/**` 기본 보호, BCrypt 패스워드 저장 |
 | 운영 헬스체크 | 부분 완료 | `/api/ops/external-health`에서 KIS/Telegram/Codex/Stooq/KIND 설정 상태, Codex 일 호출량/예상 예산, 수집 데이터 최신성 READY/STALE/NO_DATA 조회 |
-| Flyway 마이그레이션 | 완료 | `V1`~`V10` 적용 (V9: `feature_snapshot`, V10: `market_universe.name` 확장), `ddl-auto: validate` 기준 |
+| Flyway 마이그레이션 | 완료 | `V1`~`V13` 적용 (V13: `context_relation_analysis`), `ddl-auto: validate` 기준 |
 | Swagger 문서 | 완료 | `http://localhost:8083/swagger-ui.html` |
 
 ### 1.2 프론트 구현 완료
@@ -396,7 +400,7 @@ http://127.0.0.1:5173
 | 상태 | 부분 완료 |
 | 완료 기준 | 종목별 최근 뉴스 제목/링크 저장 가능 |
 
-현재 Google News / Yahoo Finance RSS 기반 수집, 저장, 조회, 스케줄러 연동이 구현되어 있다. 뉴스 감성 점수는 간단한 룰 기반이며 추천 feature 반영은 아직 제한적이다.
+현재 한국 Google News/Naver, 미국 Yahoo Finance/Google News 기반 멀티소스 수집, 저장, 조회, 스케줄러 연동이 구현되어 있다. 뉴스 감성 점수는 외부 사이드카 우선, 룰 기반 fallback이며 추천 feature에 당일 뉴스만 반영한다.
 
 ### P2-4. 공시/매크로 수집
 

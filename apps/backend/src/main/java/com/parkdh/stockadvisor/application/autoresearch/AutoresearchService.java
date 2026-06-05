@@ -48,7 +48,7 @@ import java.util.UUID; // UUID 타입을 가져온다.
 @Service // 스프링 서비스 빈으로 등록한다.
 public class AutoresearchService { // AutoResearch 서비스를 정의한다.
     private static final String SCORING_WEIGHTS_SETTING_KEY = "recommendation.scoring.weights"; // 점수 가중치 설정 키를 정의한다.
-    private static final String DEFAULT_WEIGHTS_JSON = "{\"value\":{\"liquidity\":0.20,\"price\":0.10,\"technical\":0.30,\"context\":0.15,\"fundamental\":0.10,\"dataQuality\":0.15},\"technical\":{\"ma\":0.30,\"rsi\":0.25,\"volume\":0.20,\"macd\":0.15,\"bollinger\":0.10},\"context\":{\"news\":0.40,\"disclosure\":0.18,\"macro\":0.25,\"fundamental\":0.17}}"; // 기본 점수 가중치를 정의한다.
+    private static final String DEFAULT_WEIGHTS_JSON = "{\"value\":{\"liquidity\":0.20,\"price\":0.10,\"technical\":0.30,\"context\":0.15,\"fundamental\":0.10,\"dataQuality\":0.15},\"technical\":{\"ma\":0.30,\"rsi\":0.25,\"volume\":0.20,\"macd\":0.15,\"bollinger\":0.10},\"context\":{\"news\":0.40,\"disclosure\":0.18,\"macro\":0.25,\"fundamental\":0.17},\"shortHoldingDays\":5,\"longHoldingMonths\":6}"; // 기본 점수 가중치를 정의한다.
     private static final List<String> MUTATION_PATHS = List.of(
             "value.technical",
             "value.context",
@@ -159,7 +159,10 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
             String proposalSha = hash(proposalJson); // 후보 해시를 생성한다.
             try { // 단일 실험 실패를 기록하고 다음 실험으로 진행한다.
                 saveWeights(proposalJson); // 후보 가중치를 적용한다.
-                BacktestRunService.BacktestEvaluation evaluation = backtestRunService.evaluateRecommendationEngine(simulationRequest); // 추천 엔진 백테스트를 수행한다.
+                BacktestSimulationRequest adaptedRequest = safeRequest.holdingDays() != null
+                        ? simulationRequest
+                        : withHoldingDays(simulationRequest, extractIntField(proposalJson, "shortHoldingDays", 5));
+                BacktestRunService.BacktestEvaluation evaluation = backtestRunService.evaluateRecommendationEngine(adaptedRequest); // 추천 엔진 백테스트를 수행한다.
                 BigDecimal metricValue = evaluation.metricValue(); // 평가 지표를 가져온다.
                 boolean keep = bestMetric == null || metricValue.compareTo(bestMetric) > 0; // 기존 최고보다 개선됐는지 판단한다.
                 if (keep) { // 개선된 후보면 최고 후보를 갱신한다.
@@ -494,6 +497,8 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
     private String mutateWeights(String sourceJson, FeatureICService.MutationGuide mutationGuide) { // 가중치 JSON을 변형한다.
         try { // JSON 파싱 실패를 처리한다.
             ObjectNode root = (ObjectNode) objectMapper.readTree(sourceJson).deepCopy(); // 원본 JSON을 복사한다.
+            if (!root.has("shortHoldingDays")) root.put("shortHoldingDays", 5); // 필드 없으면 기본값 추가한다.
+            if (!root.has("longHoldingMonths")) root.put("longHoldingMonths", 6); // 필드 없으면 기본값 추가한다.
             String path = mutationGuide.weightPath(); // 이번 반복에서 바꿀 경로를 결정한다.
             String[] parts = path.split("\\."); // 경로를 분리한다.
             ObjectNode parent = (ObjectNode) root.path(parts[0]); // 부모 노드를 조회한다.
@@ -503,11 +508,33 @@ public class AutoresearchService { // AutoResearch 서비스를 정의한다.
             normalizeWeightGroup((ObjectNode) root.path("value")); // 종합 가중치 합을 1로 정규화한다.
             normalizeWeightGroup((ObjectNode) root.path("technical")); // 기술 가중치 합을 1로 정규화한다.
             normalizeWeightGroup((ObjectNode) root.path("context")); // 컨텍스트 가중치 합을 1로 정규화한다.
+            mutateHoldingParam(root, "shortHoldingDays", 3, 14); // 단기 보유일 랜덤 변형한다.
+            mutateHoldingParam(root, "longHoldingMonths", 2, 12); // 장기 보유월 랜덤 변형한다.
             return objectMapper.writeValueAsString(root); // 변형 JSON을 반환한다.
         } catch (Exception exception) { // JSON 파싱 실패를 처리한다.
             throw new CustomException("Failed to mutate scoring weights: " + exception.getMessage(), 500); // 변형 실패 예외를 던진다.
         } // 예외 처리를 종료한다.
     } // 가중치 변형을 종료한다.
+
+    private void mutateHoldingParam(ObjectNode root, String field, int min, int max) { // 보유 기간 파라미터를 랜덤 ±1 변형한다.
+        if (Math.random() > 0.4) return; // 40% 확률로만 변형한다.
+        int current = root.has(field) ? root.path(field).asInt() : (min + max) / 2; // 현재 값을 읽는다.
+        int delta = Math.random() < 0.5 ? 1 : -1; // ±1 방향을 결정한다.
+        root.put(field, Math.max(min, Math.min(max, current + delta))); // 범위 내로 클램프해 저장한다.
+    } // 보유 기간 파라미터 변형을 종료한다.
+
+    private BacktestSimulationRequest withHoldingDays(BacktestSimulationRequest base, int holdingDays) { // holdingDays만 교체한 백테스트 요청을 반환한다.
+        return new BacktestSimulationRequest(base.strategy(), base.market(), base.periodFrom(), base.periodTo(), base.maxTickers(), holdingDays, base.targetPct(), base.stopPct());
+    } // holdingDays 교체를 종료한다.
+
+    private int extractIntField(String json, String field, int defaultValue) { // JSON 최상위 정수 필드를 추출한다.
+        try {
+            JsonNode node = objectMapper.readTree(json).path(field);
+            return node.isNumber() ? node.asInt(defaultValue) : defaultValue;
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    } // 정수 필드 추출을 종료한다.
 
     private void normalizeWeightGroup(ObjectNode node) { // 같은 그룹 내 가중치 합을 1로 맞춘다.
         List<String> fieldNames = new ArrayList<>(); // 필드명 목록을 준비한다.
