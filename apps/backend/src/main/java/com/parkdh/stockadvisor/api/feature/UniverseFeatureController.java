@@ -2,12 +2,14 @@ package com.parkdh.stockadvisor.api.feature; // 후보군 feature API 패키지�
 
 import com.parkdh.stockadvisor.application.feature.UniverseFeatureBuilder; // 후보군 feature 빌더를 가져온다.
 import com.parkdh.stockadvisor.global.dto.ResultDto; // 공통 응답 DTO를 가져온다.
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation; // Swagger Operation 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.GetMapping; // GET 매핑 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.RequestMapping; // 공통 경로 매핑 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.RequestParam; // 요청 파라미터 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.RestController; // REST 컨트롤러 어노테이션을 가져온다.
 
+@Hidden
 @RestController // REST API 컨트롤러로 등록한다.
 @RequestMapping("/api/features") // feature API 공통 경로를 지정한다.
 public class UniverseFeatureController { // 후보군 feature 컨트롤러를 정의한다.

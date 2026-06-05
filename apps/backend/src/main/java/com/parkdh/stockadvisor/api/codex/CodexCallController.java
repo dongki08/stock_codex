@@ -62,7 +62,7 @@ public class CodexCallController { // Codex 호출 컨트롤러를 정의한다.
         return ResultDto.success(codexCallService.getCodexCall(id)); // 서비스 조회 결과를 성공 응답으로 래핑해 반환한다.
     } // Codex 호출 로그 단건 조회 API를 종료한다.
 
-    @Operation(summary = "Codex 호출 로그 저장", description = """
+    @Operation(hidden = true, summary = "Codex 호출 로그 저장", description = """
             Codex CLI 호출 결과를 저장한다.
             **사용 목적:**
             - LLM 호출 한도, 지연, 실패율, 도구 사용 여부 감사

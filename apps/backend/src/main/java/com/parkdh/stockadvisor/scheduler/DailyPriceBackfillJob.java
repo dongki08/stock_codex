@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.DayOfWeek;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -24,13 +25,17 @@ public class DailyPriceBackfillJob {
 
     @Scheduled(cron = "0 10 18 * * MON-FRI", zone = "Asia/Seoul")
     public void runKrxBackfill() {
-        runBackfill("KRX", List.of("KOSPI", "KOSDAQ"), "collection.dailyPriceBackfill.kr.limitPerMarket", 50, "collection.dailyPriceBackfill.kr.days", 120);
+        runKrxOpenApiBackfill();
     }
 
     @Scheduled(cron = "0 20 7 * * TUE-SAT", zone = "Asia/Seoul")
     public void runUsBackfill() {
         runBackfill("US", List.of("NASDAQ", "NYSE"), "collection.dailyPriceBackfill.us.limitPerMarket", 50, "collection.dailyPriceBackfill.us.days", 180);
     }
+
+    public void triggerKrxBackfill() { runKrxBackfill(); }
+
+    public void triggerUsBackfill() { runUsBackfill(); }
 
     private void runBackfill(String track, List<String> markets, String limitKey, int defaultLimit, String daysKey, int defaultDays) {
         if (!schedulerSettingReader.getBoolean("collection.dailyPriceBackfill.enabled", true)) {
@@ -77,6 +82,69 @@ public class DailyPriceBackfillJob {
                                 totals.failedMarkets
                         )
         );
+    }
+
+    private void runKrxOpenApiBackfill() {
+        if (!schedulerSettingReader.getBoolean("collection.dailyPriceBackfill.enabled", true)) {
+            log.info("DailyPriceBackfillJob KRX skipped. collection.dailyPriceBackfill.enabled=false");
+            return;
+        }
+
+        int days = schedulerSettingReader.getInt("collection.dailyPriceBackfill.kr.days", 120);
+        LocalDate to = previousBusinessDay(LocalDate.now());
+        LocalDate from = to.minusDays(days);
+        BackfillTotals totals = new BackfillTotals();
+
+        for (String market : List.of("KOSPI", "KOSDAQ")) {
+            try {
+                PriceDailySyncResponse response = marketDataSyncService.syncKrxDailyPrices(market, from, to);
+                totals.add(response);
+                log.info(
+                        "DailyPriceBackfillJob KRX {} completed by KRX OpenAPI. requested={}, fetched={}, upserted={}",
+                        market,
+                        response.requestedTickerCount(),
+                        response.fetchedCount(),
+                        response.upsertedCount()
+                );
+            } catch (Exception exception) {
+                totals.failedMarkets++;
+                log.warn("DailyPriceBackfillJob KRX {} KRX OpenAPI failed. Falling back to legacy ticker sync. error={}", market, exception.getMessage(), exception);
+                try {
+                    PriceDailySyncResponse fallback = marketDataSyncService.syncDailyPrices(
+                            market,
+                            schedulerSettingReader.getInt("collection.dailyPriceBackfill.kr.limitPerMarket", 50),
+                            days
+                    );
+                    totals.add(fallback);
+                } catch (Exception fallbackException) {
+                    totals.failedMarkets++;
+                    log.warn("DailyPriceBackfillJob KRX {} fallback failed. error={}", market, fallbackException.getMessage(), fallbackException);
+                }
+            }
+        }
+
+        notificationService.sendTelegramOnce(
+                "daily-price-backfill:KRX:" + LocalDate.now().format(DATE_KEY_FORMATTER),
+                "%s daily price backfill\ncandidates=%d\nrequested=%d\nskippedUpToDate=%d\nskippedNoHistory=%d\nfetched=%d\nupserted=%d\nfailedMarkets=%d"
+                        .formatted(
+                                "KRX",
+                                totals.candidateCount,
+                                totals.requestedTickerCount,
+                                totals.skippedUpToDateCount,
+                                totals.skippedNoHistoryCount,
+                                totals.fetchedCount,
+                                totals.upsertedCount,
+                                totals.failedMarkets
+                        )
+        );
+    }
+
+    private LocalDate previousBusinessDay(LocalDate date) {
+        LocalDate cursor = date.minusDays(1);
+        while (cursor.getDayOfWeek() == DayOfWeek.SATURDAY || cursor.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            cursor = cursor.minusDays(1);
+        }
+        return cursor;
     }
 
     private static final class BackfillTotals {

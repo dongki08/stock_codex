@@ -16,6 +16,8 @@ public interface DisclosureEventRepository extends JpaRepository<DisclosureEvent
 
     List<DisclosureEventEntity> findAllByOrderByDisclosedAtDesc(Pageable pageable);
 
+    List<DisclosureEventEntity> findByMarketAndTickerAndDisclosedAtBetweenOrderByDisclosedAtDesc(String market, String ticker, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
     // PIT 스냅샷용: asOf 이하 공시만 조회 (미래참조 차단)
     List<DisclosureEventEntity> findByMarketAndTickerAndDisclosedAtLessThanEqualOrderByDisclosedAtDesc(String market, String ticker, LocalDateTime asOf, Pageable pageable);
 }

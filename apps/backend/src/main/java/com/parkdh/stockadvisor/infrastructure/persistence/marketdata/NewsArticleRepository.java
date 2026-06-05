@@ -16,6 +16,11 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticleEntity, 
 
     List<NewsArticleEntity> findAllByOrderByPublishedAtDesc(Pageable pageable);
 
-    // PIT 스냅샷용: asOf 이하 발행 뉴스만 조회 (미래참조 차단)
-    List<NewsArticleEntity> findByMarketAndTickerAndPublishedAtLessThanEqualOrderByPublishedAtDesc(String market, String ticker, LocalDateTime asOf, Pageable pageable);
+    List<NewsArticleEntity> findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(String market, String ticker, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+    List<NewsArticleEntity> findByMarketAndPublishedAtBetweenOrderByPublishedAtDesc(String market, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+    List<NewsArticleEntity> findByTickerAndPublishedAtBetweenOrderByPublishedAtDesc(String ticker, LocalDateTime from, LocalDateTime to, Pageable pageable);
+
+    List<NewsArticleEntity> findByPublishedAtBetweenOrderByPublishedAtDesc(LocalDateTime from, LocalDateTime to, Pageable pageable);
 }

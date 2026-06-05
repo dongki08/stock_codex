@@ -12,7 +12,7 @@
 |---|---|---|
 | 일봉/장중 가격 저장/조회 | 완료 | `price_daily`, `price_intraday` |
 | ExitMonitor 자동 청산 | 완료 | 룰 기반(목표가/손절가/만료) 자동 청산 + 평가 기록. ⚠️ 구 `exit-confirm` API/테이블은 V8에서 제거됨 |
-| 뉴스 RSS 수집 | 완료 | 제목/링크/발행시각 저장 |
+| 뉴스 멀티소스 수집 | 완료 | KR Google/Naver, US Yahoo/Google에서 KST 기준 당일 뉴스 저장 |
 | 공시 수집 | 완료 | DART, SEC EDGAR 메타데이터 저장 |
 | 매크로 수집 | 완료 | FRED 공개 CSV 주요 지표 저장 |
 | 수집 데이터 프론트 화면 | 완료 | 뉴스/공시/매크로 조회 및 동기화 버튼 |
@@ -69,6 +69,7 @@ DB 계정/비밀번호가 다르면 위 값을 본인 환경에 맞게 수정해
 | `TELEGRAM_CHAT_ID` | 선택 | 실제 Telegram 알림 대상 | 로그 출력 개발 모드 |
 | `CODEX_COMMAND` | 선택 | Codex CLI 실제 호출 | 로컬 fallback 브리프/판단 |
 | `DART_API_KEY` | 선택 | 한국 공시 수집 | DART 수집은 빈 결과 |
+| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 선택 | 네이버 뉴스 검색 API | 한국 뉴스는 Google News RSS만 수집 |
 | `SEC_USER_AGENT` | 권장 | SEC EDGAR 요청 User-Agent | 기본값 사용 |
 | `stock-advisor.sentiment.enabled` / `.base-url` (yml) | 선택 | 외부 뉴스 감성 분석 사이드카 | `false`/`dev-placeholder`(기본) 시 키워드 룰 폴백 |
 | `ADMIN_USERNAME` | 권장 | BasicAuth 계정 | 기본 `admin` |
@@ -80,6 +81,8 @@ Windows PowerShell 예시:
 $env:KIS_APP_KEY="..."
 $env:KIS_APP_SECRET="..."
 $env:DART_API_KEY="..."
+$env:NAVER_CLIENT_ID="..."
+$env:NAVER_CLIENT_SECRET="..."
 $env:TELEGRAM_BOT_TOKEN="..."
 $env:TELEGRAM_CHAT_ID="..."
 $env:SEC_USER_AGENT="StockAdvisor/1.0 your-email@example.com"
@@ -148,7 +151,7 @@ http://127.0.0.1:5173
 | 설정 키 | 기본값 | 설명 |
 |---|---:|---|
 | `collection.enabled` | `true` | 뉴스/공시/매크로 자동 수집 활성 여부 |
-| `collection.news.tickersPerMarket` | `5` | 시장별 뉴스 수집 후보 수 |
+| `collection.news.tickersPerMarket` | `20` | 시장별 뉴스 수집 후보 수 |
 | `collection.news.limitPerTicker` | `5` | 종목별 뉴스 수집 개수 |
 | `collection.disclosure.limit` | `20` | 시장별 공시 수집 개수 |
 | `collection.macro.limitPerSeries` | `5` | 매크로 지표별 수집 개수 |
@@ -193,6 +196,8 @@ POST /api/market-data/daily-prices/sync?market=ALL&limit=20&days=120
 ```
 
 ### 4. 뉴스 동기화
+
+한국 종목은 Google News RSS와 Naver 뉴스 검색 API, 미국 종목은 Yahoo Finance RSS와 Google News RSS를 함께 조회한다. 출처별 기본 5건을 가져와 URL 중복 제거 후 종목당 최대 10건을 저장한다.
 
 한국 예시:
 
@@ -350,7 +355,7 @@ GET /api/ops/external-health
 
 ## 주의사항
 
-- 뉴스 본문 전문은 저장하지 않는다. 제목, 링크, 요약 메타데이터 중심으로 저장한다.
+- 뉴스 본문 전문은 저장하지 않는다. KST 기준 수집 당일 발행된 뉴스의 제목, 링크, 요약 메타데이터만 저장하고 추천 뉴스 점수에도 당일 뉴스만 반영한다. Naver 키가 없으면 한국 뉴스는 Google News RSS만 사용한다.
 - DART API 키가 없으면 한국 공시는 빈 결과가 정상일 수 있다.
 - SEC EDGAR 호출은 `SEC_USER_AGENT`를 실제 연락 가능한 값으로 설정하는 편이 안전하다.
 - 외부 RSS/FRED/SEC 호출은 네트워크 상태와 제공자 정책에 따라 일시 실패할 수 있다.

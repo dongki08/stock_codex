@@ -15,8 +15,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -25,12 +27,31 @@ import java.util.List;
 @Slf4j
 @Component
 public class RssNewsClient {
+    private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
     public List<NewsRow> fetchNews(String market, String ticker, int limit) {
-        String url = buildUrl(market, ticker);
+        return fetchNews(market, ticker, null, limit);
+    }
+
+    public List<NewsRow> fetchNews(String market, String ticker, String companyName, int limit) {
+        return isKoreanMarket(market)
+                ? fetchGoogleNews(market, ticker, companyName, limit)
+                : fetchYahooNews(market, ticker, limit);
+    }
+
+    public List<NewsRow> fetchGoogleNews(String market, String ticker, String companyName, int limit) {
+        return fetch(buildGoogleUrl(market, ticker, companyName), market, ticker, limit, "GOOGLE_NEWS_RSS");
+    }
+
+    public List<NewsRow> fetchYahooNews(String market, String ticker, int limit) {
+        return fetch(buildYahooUrl(ticker), market, ticker, limit, "YAHOO_FINANCE_RSS");
+    }
+
+    private List<NewsRow> fetch(String url, String market, String ticker, int limit, String source) {
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(15))
@@ -42,26 +63,38 @@ public class RssNewsClient {
                 log.warn("RSS news fetch failed. status={}, url={}", response.statusCode(), url);
                 return List.of();
             }
-            return parseFeed(response.body(), market, ticker, limit, sourceName(market));
+            return parseFeed(response.body(), market, ticker, limit, source);
         } catch (Exception exception) {
             log.warn("RSS news fetch error. url={}, error={}", url, exception.getMessage());
             return List.of();
         }
     }
 
-    private String buildUrl(String market, String ticker) {
-        String query = ticker == null || ticker.isBlank() ? "stock market" : ticker + " stock";
-        if ("KOSPI".equals(market) || "KOSDAQ".equals(market)) {
-            query = ticker == null || ticker.isBlank() ? "한국 증시" : ticker + " 주식";
+    String buildGoogleUrl(String market, String ticker, String companyName) {
+        String query;
+        if (isKoreanMarket(market)) {
+            if (ticker == null || ticker.isBlank()) {
+                query = "한국 증시";
+            } else {
+                query = companyName == null || companyName.isBlank()
+                        ? ticker + " 주식"
+                        : companyName + " " + ticker + " 주식";
+            }
             return "https://news.google.com/rss/search?q=" + encode(query) + "&hl=ko&gl=KR&ceid=KR:ko";
         }
-        if (ticker != null && !ticker.isBlank()) {
-            return "https://feeds.finance.yahoo.com/rss/2.0/headline?s=" + encode(ticker) + "&region=US&lang=en-US";
-        }
+        query = ticker == null || ticker.isBlank()
+                ? "stock market"
+                : companyName == null || companyName.isBlank()
+                ? ticker + " stock"
+                : companyName + " " + ticker + " stock";
         return "https://news.google.com/rss/search?q=" + encode(query) + "&hl=en-US&gl=US&ceid=US:en";
     }
 
-    private List<NewsRow> parseFeed(String xml, String market, String ticker, int limit, String source) throws Exception {
+    String buildYahooUrl(String ticker) {
+        return "https://feeds.finance.yahoo.com/rss/2.0/headline?s=" + encode(ticker == null ? "" : ticker) + "&region=US&lang=en-US";
+    }
+
+    List<NewsRow> parseFeed(String xml, String market, String ticker, int limit, String source) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
         Document document = factory.newDocumentBuilder().parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
@@ -78,10 +111,11 @@ public class RssNewsClient {
             Element item = (Element) items.item(i);
             String title = text(item, "title");
             String link = text(item, "link");
-            if (title.isBlank() || link.isBlank()) {
+            LocalDateTime publishedAt = parseDate(text(item, "pubDate"));
+            if (title.isBlank() || link.isBlank() || !isPublishedToday(publishedAt)) {
                 continue;
             }
-            rows.add(new NewsRow(ticker, market, title, link, source, parseDate(text(item, "pubDate")), text(item, "description")));
+            rows.add(new NewsRow(ticker, market, title, link, source, publishedAt, text(item, "description")));
         }
         return rows;
     }
@@ -92,10 +126,11 @@ public class RssNewsClient {
             Element entry = (Element) entries.item(i);
             String title = text(entry, "title");
             String link = atomLink(entry);
-            if (title.isBlank() || link.isBlank()) {
+            LocalDateTime publishedAt = parseDate(text(entry, "updated"));
+            if (title.isBlank() || link.isBlank() || !isPublishedToday(publishedAt)) {
                 continue;
             }
-            rows.add(new NewsRow(ticker, market, title, link, source, parseDate(text(entry, "updated")), text(entry, "summary")));
+            rows.add(new NewsRow(ticker, market, title, link, source, publishedAt, text(entry, "summary")));
         }
         return rows;
     }
@@ -118,23 +153,31 @@ public class RssNewsClient {
         return nodes.item(0).getTextContent().trim();
     }
 
+    private boolean isPublishedToday(LocalDateTime publishedAt) {
+        return publishedAt != null && publishedAt.toLocalDate().equals(LocalDate.now(SEOUL_ZONE));
+    }
+
     private LocalDateTime parseDate(String value) {
         if (value == null || value.isBlank()) {
             return null;
         }
         try {
-            return ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toLocalDateTime();
+            return ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME)
+                    .withZoneSameInstant(SEOUL_ZONE)
+                    .toLocalDateTime();
         } catch (Exception ignored) {
             try {
-                return OffsetDateTime.parse(value).toLocalDateTime();
+                return OffsetDateTime.parse(value)
+                        .atZoneSameInstant(SEOUL_ZONE)
+                        .toLocalDateTime();
             } catch (Exception ignoredAgain) {
                 return null;
             }
         }
     }
 
-    private String sourceName(String market) {
-        return "KOSPI".equals(market) || "KOSDAQ".equals(market) ? "GOOGLE_NEWS_RSS" : "YAHOO_FINANCE_RSS";
+    private boolean isKoreanMarket(String market) {
+        return "KOSPI".equals(market) || "KOSDAQ".equals(market);
     }
 
     private String encode(String value) {

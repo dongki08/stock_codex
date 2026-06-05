@@ -2,17 +2,20 @@ package com.parkdh.stockadvisor.application.marketdata;
 
 import com.parkdh.stockadvisor.domain.marketdata.FundamentalMetricEntity;
 import com.parkdh.stockadvisor.domain.marketdata.NewsArticleEntity;
+import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.infrastructure.marketdata.disclosure.DisclosureClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.fundamental.DartFundamentalClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.fundamental.SecFundamentalClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.kr.KisApiClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.macro.FredMacroClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.news.RssNewsClient;
+import com.parkdh.stockadvisor.infrastructure.marketdata.news.NaverNewsClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.news.SentimentAnalysisClient;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.DisclosureEventRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.FundamentalMetricRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.MacroObservationRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.NewsArticleRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.universe.MarketUniverseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +31,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,6 +49,8 @@ class MarketDataCollectionServiceTest {
     @Mock
     private RssNewsClient rssNewsClient;
     @Mock
+    private NaverNewsClient naverNewsClient;
+    @Mock
     private DisclosureClient disclosureClient;
     @Mock
     private FredMacroClient fredMacroClient;
@@ -56,6 +62,8 @@ class MarketDataCollectionServiceTest {
     private KisApiClient kisApiClient;
     @Mock
     private SentimentAnalysisClient sentimentAnalysisClient;
+    @Mock
+    private MarketUniverseRepository marketUniverseRepository;
 
     private MarketDataCollectionService service;
 
@@ -67,19 +75,34 @@ class MarketDataCollectionServiceTest {
                 macroObservationRepository,
                 fundamentalMetricRepository,
                 rssNewsClient,
+                naverNewsClient,
                 disclosureClient,
                 fredMacroClient,
                 secFundamentalClient,
                 dartFundamentalClient,
                 kisApiClient,
                 new MarketSignalScorer(),
-                sentimentAnalysisClient
+                sentimentAnalysisClient,
+                marketUniverseRepository
+        );
+    }
+
+    @Test
+    void getNewsArticlesReadsOnlyTodayRange() {
+        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        service.getNewsArticles("KOSPI", "005930", 10);
+
+        verify(newsArticleRepository).findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(
+                any(), any(), any(), any(), any()
         );
     }
 
     @Test
     void syncNewsArticlesUsesMlSentimentWhenSidecarReturnsScore() {
-        when(rssNewsClient.fetchNews("NASDAQ", "AAPL", 1))
+        when(marketUniverseRepository.findById("NASDAQ:AAPL")).thenReturn(Optional.of(universe("AAPL", "NASDAQ", "Apple")));
+        when(rssNewsClient.fetchYahooNews("NASDAQ", "AAPL", 1))
                 .thenReturn(List.of(new RssNewsClient.NewsRow(
                         "AAPL",
                         "NASDAQ",
@@ -89,6 +112,7 @@ class MarketDataCollectionServiceTest {
                         LocalDateTime.now(),
                         "strong demand"
                 )));
+        when(rssNewsClient.fetchGoogleNews("NASDAQ", "AAPL", "Apple", 1)).thenReturn(List.of());
         when(sentimentAnalysisClient.analyze("AAPL shares surge after record profit beat", "strong demand"))
                 .thenReturn(Optional.of(BigDecimal.valueOf(0.870)));
         when(newsArticleRepository.findById(any(String.class))).thenReturn(Optional.empty());
@@ -103,7 +127,8 @@ class MarketDataCollectionServiceTest {
 
     @Test
     void syncNewsArticlesFallsBackToRuleSentimentWhenSidecarHasNoScore() {
-        when(rssNewsClient.fetchNews("NASDAQ", "AAPL", 1))
+        when(marketUniverseRepository.findById("NASDAQ:AAPL")).thenReturn(Optional.of(universe("AAPL", "NASDAQ", "Apple")));
+        when(rssNewsClient.fetchYahooNews("NASDAQ", "AAPL", 1))
                 .thenReturn(List.of(new RssNewsClient.NewsRow(
                         "AAPL",
                         "NASDAQ",
@@ -113,6 +138,7 @@ class MarketDataCollectionServiceTest {
                         LocalDateTime.now(),
                         null
                 )));
+        when(rssNewsClient.fetchGoogleNews("NASDAQ", "AAPL", "Apple", 1)).thenReturn(List.of());
         when(sentimentAnalysisClient.analyze("AAPL shares plunge after lawsuit warning", null))
                 .thenReturn(Optional.empty());
         when(newsArticleRepository.findById(any(String.class))).thenReturn(Optional.empty());
@@ -123,6 +149,51 @@ class MarketDataCollectionServiceTest {
         ArgumentCaptor<NewsArticleEntity> captor = ArgumentCaptor.forClass(NewsArticleEntity.class);
         verify(newsArticleRepository).save(captor.capture());
         assertThat(captor.getValue().getSentimentScore()).isNegative();
+    }
+
+    @Test
+    void syncNewsArticlesMergesKoreanSourcesAndDeduplicatesUrl() {
+        LocalDateTime now = LocalDateTime.now();
+        RssNewsClient.NewsRow duplicateGoogle = new RssNewsClient.NewsRow("005930", "KOSPI", "Google", "https://example.com/shared", "GOOGLE_NEWS_RSS", now.minusMinutes(1), null);
+        RssNewsClient.NewsRow duplicateNaver = new RssNewsClient.NewsRow("005930", "KOSPI", "Naver", "https://example.com/shared", "NAVER_NEWS_API", now, null);
+        RssNewsClient.NewsRow naverOnly = new RssNewsClient.NewsRow("005930", "KOSPI", "Naver only", "https://example.com/naver", "NAVER_NEWS_API", now.minusMinutes(2), null);
+        when(marketUniverseRepository.findById("KOSPI:005930")).thenReturn(Optional.of(universe("005930", "KOSPI", "삼성전자")));
+        when(rssNewsClient.fetchGoogleNews("KOSPI", "005930", "삼성전자", 5)).thenReturn(List.of(duplicateGoogle));
+        when(naverNewsClient.fetchNews("KOSPI", "005930", "삼성전자", 5)).thenReturn(List.of(duplicateNaver, naverOnly));
+        when(sentimentAnalysisClient.analyze(any(), any())).thenReturn(Optional.empty());
+        when(newsArticleRepository.findById(any())).thenReturn(Optional.empty());
+        when(newsArticleRepository.save(any(NewsArticleEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = service.syncNewsArticles("KOSPI", "005930", 5);
+
+        assertThat(response.fetchedCount()).isEqualTo(2);
+        assertThat(response.savedCount()).isEqualTo(2);
+        verify(rssNewsClient).fetchGoogleNews("KOSPI", "005930", "삼성전자", 5);
+        verify(naverNewsClient).fetchNews("KOSPI", "005930", "삼성전자", 5);
+        verify(rssNewsClient, never()).fetchYahooNews(any(), any(), anyInt());
+    }
+
+    @Test
+    void syncNewsArticlesMergesUsYahooAndGoogle() {
+        LocalDateTime now = LocalDateTime.now();
+        when(marketUniverseRepository.findById("NASDAQ:AAPL")).thenReturn(Optional.of(universe("AAPL", "NASDAQ", "Apple")));
+        when(rssNewsClient.fetchYahooNews("NASDAQ", "AAPL", 5)).thenReturn(List.of(
+                new RssNewsClient.NewsRow("AAPL", "NASDAQ", "Yahoo", "https://example.com/yahoo", "YAHOO_FINANCE_RSS", now, null)
+        ));
+        when(rssNewsClient.fetchGoogleNews("NASDAQ", "AAPL", "Apple", 5)).thenReturn(List.of(
+                new RssNewsClient.NewsRow("AAPL", "NASDAQ", "Google", "https://example.com/google", "GOOGLE_NEWS_RSS", now.minusMinutes(1), null)
+        ));
+        when(sentimentAnalysisClient.analyze(any(), any())).thenReturn(Optional.empty());
+        when(newsArticleRepository.findById(any())).thenReturn(Optional.empty());
+        when(newsArticleRepository.save(any(NewsArticleEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = service.syncNewsArticles("NASDAQ", "AAPL", 5);
+
+        assertThat(response.fetchedCount()).isEqualTo(2);
+        assertThat(response.savedCount()).isEqualTo(2);
+        verify(rssNewsClient).fetchYahooNews("NASDAQ", "AAPL", 5);
+        verify(rssNewsClient).fetchGoogleNews("NASDAQ", "AAPL", "Apple", 5);
+        verify(naverNewsClient, never()).fetchNews(any(), any(), any(), anyInt());
     }
 
     @Test
@@ -155,5 +226,20 @@ class MarketDataCollectionServiceTest {
                 .containsExactly("PER", "PBR", "ROE", "REVENUE_GROWTH_YOY");
         assertThat(captor.getAllValues()).extracting(FundamentalMetricEntity::getSource)
                 .containsExactly("KIS_INQUIRE_PRICE", "KIS_INQUIRE_PRICE", "KIS_INQUIRE_PRICE", "DART_FNLTT_SINGLE");
+    }
+
+    private MarketUniverseEntity universe(String ticker, String market, String name) {
+        return new MarketUniverseEntity(
+                ticker,
+                market,
+                name,
+                null,
+                BigDecimal.valueOf(1_000_000_000L),
+                BigDecimal.valueOf(100_000_000L),
+                BigDecimal.valueOf(100),
+                true,
+                "TEST",
+                LocalDate.now()
+        );
     }
 }

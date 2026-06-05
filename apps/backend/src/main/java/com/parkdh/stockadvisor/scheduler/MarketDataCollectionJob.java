@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.api.marketdata.dto.MarketDataCollectionSyncResponse;
 import com.parkdh.stockadvisor.application.marketdata.MarketDataCollectionService;
 import com.parkdh.stockadvisor.application.marketdata.MarketDataSyncService;
+import com.parkdh.stockadvisor.application.marketdata.ContextRelationAnalysisService;
 import com.parkdh.stockadvisor.application.notification.NotificationService;
 import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.infrastructure.persistence.setting.AppSettingRepository;
@@ -27,6 +28,7 @@ public class MarketDataCollectionJob {
 
     private final MarketDataCollectionService marketDataCollectionService;
     private final MarketDataSyncService marketDataSyncService;
+    private final ContextRelationAnalysisService contextRelationAnalysisService;
     private final MarketUniverseRepository marketUniverseRepository;
     private final AppSettingRepository appSettingRepository;
     private final NotificationService notificationService;
@@ -75,7 +77,7 @@ public class MarketDataCollectionJob {
         }
         log.info("MarketDataCollectionJob {} 시작", track);
         try {
-            int tickersPerMarket = getIntSetting("collection.news.tickersPerMarket", 5);
+            int tickersPerMarket = getIntSetting("collection.news.tickersPerMarket", 20);
             int newsLimitPerTicker = getIntSetting("collection.news.limitPerTicker", 5);
             int disclosureLimit = getIntSetting("collection.disclosure.limit", 20);
             int fundamentalTickersPerMarket = getIntSetting("collection.fundamental.tickersPerMarket", 3);
@@ -104,15 +106,17 @@ public class MarketDataCollectionJob {
 
             int disclosureSaved = 0;
             int disclosureFetched = 0;
+            int relationAnalyzed = 0;
             for (String market : markets) {
                 MarketDataCollectionSyncResponse disclosures = marketDataCollectionService.syncDisclosureEvents(market, null, disclosureLimit);
                 disclosureSaved += disclosures.savedCount();
                 disclosureFetched += disclosures.fetchedCount();
+                relationAnalyzed += contextRelationAnalysisService.analyzeMarket(market, topCandidates(market, tickersPerMarket));
             }
 
-            String message = "%s data collection\nnews=%d/%d\ndisclosures=%d/%d\nfundamentals=%d/%d".formatted(track, newsSaved, newsFetched, disclosureSaved, disclosureFetched, fundamentalSaved, fundamentalFetched);
+            String message = "%s data collection\nnews=%d/%d\ndisclosures=%d/%d\nfundamentals=%d/%d\nrelations=%d".formatted(track, newsSaved, newsFetched, disclosureSaved, disclosureFetched, fundamentalSaved, fundamentalFetched, relationAnalyzed);
             notificationService.sendTelegramOnce("collection:" + track + ":" + LocalDate.now().format(DATE_KEY_FORMATTER), message);
-            log.info("MarketDataCollectionJob {} 완료. news={}/{}, disclosures={}/{}, fundamentals={}/{}", track, newsSaved, newsFetched, disclosureSaved, disclosureFetched, fundamentalSaved, fundamentalFetched);
+            log.info("MarketDataCollectionJob {} 완료. news={}/{}, disclosures={}/{}, fundamentals={}/{}, relations={}", track, newsSaved, newsFetched, disclosureSaved, disclosureFetched, fundamentalSaved, fundamentalFetched, relationAnalyzed);
         } catch (Exception exception) {
             log.error("MarketDataCollectionJob {} 실행 중 오류가 발생했습니다. error={}", track, exception.getMessage(), exception);
             notificationService.sendTelegramOnce("collection:" + track + ":error:" + LocalDate.now().format(DATE_KEY_FORMATTER), "❌ " + track + " collection error: " + exception.getMessage());

@@ -1,77 +1,49 @@
 # Stock Advisor Backend API 명세
 
-> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 20(API) · 상태 🟢 현행 · 빠른 요약은 [21-API-QUICK.md](21-API-QUICK.md)
+> 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 20(API) · 상태 🟢 현행 · 코드기준 2026-06-04
 >
-> 기준: Spring Boot 백엔드 현재 구현 API  
-> DB 전제: MSSQL  
-> Swagger: `http://localhost:8083/swagger-ui.html`  
-> 공통 응답: `ResultDto<?>`
+> 기준: Spring Boot 백엔드 현재 구현  
+> DB: MSSQL · Flyway V13
+> Swagger: `http://localhost:8083/swagger-ui.html` (BasicAuth 필요)  
+> 빠른 참조: [21-API-QUICK.md](21-API-QUICK.md)
+
+---
 
 ## 1. 공통 규칙
 
 ### 1.1 응답 포맷
 
-모든 API는 성공/실패 모두 동일한 응답 래퍼를 사용한다.
-
-성공 응답:
-
 ```json
-{
-  "code": 200,
-  "data": {}
-}
+{ "code": 200, "data": {} }
+{ "code": 400, "error_message": "입력값이 올바르지 않습니다." }
 ```
 
-성공 응답 중 반환 데이터가 없는 경우:
+### 1.2 날짜/시간
 
-```json
-{
-  "code": 200
-}
-```
-
-실패 응답:
-
-```json
-{
-  "code": 400,
-  "error_message": "입력값이 올바르지 않습니다."
-}
-```
-
-### 1.2 날짜/시간 포맷
-
-`LocalDate`:
-
-```text
-2026-05-20
-```
-
-`LocalDateTime`:
-
-```text
-2026-05-20T08:30:00
-```
+`LocalDate` → `2026-05-20`  
+`LocalDateTime` → `2026-05-20T08:30:00`
 
 ### 1.3 JSON 문자열 필드
 
-MSSQL 기준으로 JSON 성격의 값은 `nvarchar(max)` 문자열로 저장한다. 요청 시 JSON 객체가 아니라 JSON 문자열을 넣는다.
-
-예:
+MSSQL 기준 JSON 성격의 값은 `nvarchar(max)` 문자열로 저장한다.
 
 ```json
-{
-  "signalsJson": "{\"rsi\":45,\"macd\":\"golden_cross\"}"
-}
+{ "signalsJson": "{\"rsi\":45,\"macd\":\"golden_cross\"}" }
 ```
 
-## 2. 관리자 설정 API
+### 1.4 Swagger 가시성 정책
 
-관리자 페이지가 사용할 런타임 설정과 감사 로그 API다.
+| 표시 | 의미 |
+|---|---|
+| ✅ | Swagger 노출 — 관리자 직접 사용 |
+| 🔒 | `@Operation(hidden=true)` — HTTP 접근 가능, Swagger 미노출. 내부 플로우 전용 |
+| 🚫 | `@Hidden` — HTTP 접근 가능, Swagger 미노출. 개발 전용, 운영 호출 금지 |
 
-Base URL:
+---
 
-```text
+## 2. 관리자 설정 API ✅
+
+```
 /api/admin
 ```
 
@@ -81,20 +53,7 @@ Base URL:
 GET /api/admin/settings
 ```
 
-설정 키 기준 오름차순으로 전체 설정을 조회한다.
-
-응답 `data`:
-
-```json
-[
-  {
-    "key": "recommendation.short.count",
-    "valueJson": "{\"value\":3,\"min\":1,\"max\":10}",
-    "description": "단기 추천 개수",
-    "updatedBy": "system"
-  }
-]
-```
+설정 키 기준 오름차순 반환.
 
 ### 2.2 설정 단건 조회
 
@@ -102,17 +61,7 @@ GET /api/admin/settings
 GET /api/admin/settings/{key}
 ```
 
-Path:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| key | String | Y | 설정 키 |
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 404 | 설정을 찾을 수 없습니다. |
+없으면 404.
 
 ### 2.3 설정 수정
 
@@ -120,34 +69,11 @@ Path:
 PUT /api/admin/settings/{key}
 ```
 
-Path:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| key | String | Y | 설정 키 |
-
-Request:
-
 ```json
-{
-  "valueJson": "{\"value\":5}",
-  "actor": "admin"
-}
+{ "valueJson": "{\"value\":5}", "actor": "admin" }
 ```
 
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| valueJson | 필수, 유효한 JSON 문자열 |
-| actor | 필수 |
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 400 | 설정 JSON 형식이 올바르지 않습니다. |
-| 404 | 설정을 찾을 수 없습니다. |
+`valueJson`은 유효한 JSON 문자열이어야 한다. 인증된 사용자가 있으면 `actor`보다 우선 적용된다.
 
 ### 2.4 기본 설정 초기화
 
@@ -155,20 +81,67 @@ Validation:
 POST /api/admin/settings/reset
 ```
 
-§20 관리자 페이지 기본 설정값을 생성/덮어쓴다.
+존재하지 않는 키만 새로 생성한다. 이미 있는 키는 덮어쓰지 않는다.
 
-포함 설정:
+**설정 키 전체 목록:**
 
-| 영역 | 주요 키 |
-|---|---|
-| 추천 | `recommendation.short.count`, `recommendation.long.count`, `recommendation.market.enabled` |
-| 유니버스 | `recommendation.marketcap.kr.min`, `recommendation.turnover.us.min`, `recommendation.excluded.sectors` |
-| 알림 | `notification.krx.preopen.offsetMinutes`, `notification.us.preopen.offsetMinutes`, `notification.channel.priority` |
-| 손절 | `exit.polling.intervalMinutes`, `exit.riskBand.percent`, `exit.codex.confirmLimitPerTickerDaily` |
-| 백테스트 | `backtest.period.years`, `backtest.walkForward.days`, `backtest.slippage.percent` |
-| Codex | `codex.daily.callLimit`, `codex.daily.budgetUsd`, `codex.profile` |
-| AutoResearch | `autoresearch.enabled`, `autoresearch.targetIterations`, `autoresearch.rollbackValidationDays` |
-| 운영 | `operation.dbBackup.enabled`, `operation.dbBackup.cron` |
+| 키 | 기본값 | 설명 |
+|---|---|---|
+| `recommendation.short.count` | `{"value":3,"min":1,"max":10}` | 단기 추천 개수 |
+| `recommendation.long.count` | `{"value":3,"min":1,"max":10}` | 장기 추천 개수 |
+| `recommendation.market.enabled` | `{"kr":true,"us":true}` | 시장별 활성화 |
+| `recommendation.marketcap.kr.min` | `{"value":300000000000,"currency":"KRW"}` | 한국 시총 하한 |
+| `recommendation.marketcap.us.min` | `{"value":1000000000,"currency":"USD"}` | 미국 시총 하한 |
+| `recommendation.turnover.kr.min` | `{"value":10000000000,"currency":"KRW"}` | 한국 거래대금 하한 |
+| `recommendation.turnover.us.min` | `{"value":10000000,"currency":"USD"}` | 미국 거래대금 하한 |
+| `recommendation.feature.minTotalScore` | `{"value":0,"min":0,"max":100}` | 추천 최소 feature 점수 |
+| `recommendation.feature.minDataQualityScore` | `{"value":0,"min":0,"max":100}` | 추천 최소 데이터 품질 점수 |
+| `recommendation.scoring.weights` | `{...}` | feature 가중치 (liquidity·price·technical·context·fundamental·dataQuality) |
+| `recommendation.excluded.sectors` | `{"value":[]}` | 제외 섹터 목록 |
+| `recommendation.watchlist` | `{"include":[],"exclude":[]}` | 강제 포함/제외 종목 |
+| `notification.krx.preopen.offsetMinutes` | `{"value":-30,"displayTime":"08:30"}` | KRX 프리오픈 알림 시각 |
+| `notification.us.preopen.offsetMinutes` | `{"value":-30,"dstTime":"22:00","standardTime":"23:00"}` | US 프리오픈 알림 시각 (DST/표준시 분리) |
+| `notification.us.close.offsetMinutes` | `{"value":30,"dstTime":"05:30","standardTime":"06:30"}` | US 마감 알림 시각 |
+| `notification.holiday.enabled` | `{"value":true}` | 휴장일 알림 발송 여부 |
+| `notification.holiday.kr.closedDates` | `{"value":[]}` | 한국 휴장일 날짜 목록 (예: `["2026-01-01"]`) |
+| `notification.holiday.us.closedDates` | `{"value":[]}` | 미국 휴장일 날짜 목록 |
+| `notification.channel.priority` | `{"value":["TELEGRAM","KAKAO"]}` | 알림 채널 우선순위 |
+| `collection.enabled` | `{"value":true}` | 뉴스/공시/매크로 자동 수집 활성 |
+| `collection.news.tickersPerMarket` | `{"value":20}` | 시장별 뉴스 수집 후보 수 |
+| `collection.news.limitPerTicker` | `{"value":5}` | 종목별 뉴스 수집 개수 |
+| `collection.disclosure.limit` | `{"value":20}` | 시장별 공시 수집 개수 |
+| `collection.macro.limitPerSeries` | `{"value":5}` | 매크로 지표별 수집 개수 |
+| `collection.fundamental.tickersPerMarket` | `{"value":3}` | 펀더멘털 수집 후보 수 |
+| `collection.kis.dailyPrice.delayMs` | `{"value":600,"min":100,"max":3000}` | KIS 일봉 호출 간 딜레이(ms). KIS 초당 한도 준수용 |
+| `exit.polling.intervalMinutes` | `{"value":5,"options":[1,3,5,10,30]}` | ExitMonitorJob 폴링 주기 |
+| `exit.intraday.enabled` | `{"value":true}` | 장중 즉시 손절 알림 |
+| `exit.extendedHours.enabled` | `{"value":false}` | 시간외 모니터링 |
+| `backtest.period.years` | `{"value":5,"options":[1,3,5,10]}` | 백테스트 기본 기간 |
+| `backtest.walkForward.days` | `{"value":180}` | Walk-forward 윈도우 |
+| `backtest.slippage.percent` | `{"value":0.05}` | 슬리피지 가정 |
+| `backtest.cost.kr` | `{"taxPercent":0.18,"feePercent":0.015}` | 한국 거래비용 가정 |
+| `backtest.cost.us` | `{"secFeeEnabled":true,"fxSpreadPercent":0.5}` | 미국 거래비용 가정 |
+| `autoresearch.enabled` | `{"value":true}` | AutoResearch 활성 |
+| `autoresearch.targetIterations` | `{"value":80}` | 야간 실험 목표 횟수 |
+| `autoresearch.maxTickers` | `{"value":30,"min":1,"max":300}` | 백테스트 최대 종목 수 |
+| `autoresearch.holdingDays` | `{"value":20,"min":1,"max":120}` | 백테스트 보유 기간 |
+| `autoresearch.targetPct` | `{"value":3.0,"min":0.1,"max":50}` | 백테스트 목표 수익률 |
+| `autoresearch.stopPct` | `{"value":2.0,"min":0.1,"max":50}` | 백테스트 손절률 |
+| `autoresearch.rollbackValidationDays` | `{"value":7}` | Champion 롤백 검증 기간 |
+| `codex.daily.callLimit` | `{"value":200}` | Codex 일 호출 한도 |
+| `codex.daily.budgetUsd` | `{"value":0}` | Codex 일 예산 |
+| `codex.estimatedUsdPer1kChars` | `{"value":0.002}` | Codex 문자 1천자당 예상 비용 |
+| `codex.estimatedResponseChars` | `{"value":4000}` | Codex 응답 예상 길이 |
+| `codex.profile` | `{"value":"stock-advisor"}` | Codex CLI profile |
+| `dailybrief.prompt.maxChars` | `{"value":6000,"min":800,"max":20000}` | Daily Brief 프롬프트 최대 길이 |
+| `ops.health.priceDaily.maxAgeDays` | `{"value":3}` | 일봉 헬스체크 허용 지연일 |
+| `ops.health.priceIntraday.maxAgeMinutes` | `{"value":120}` | 장중 헬스체크 허용 지연분 |
+| `ops.health.news.maxAgeHours` | `{"value":48}` | 뉴스 헬스체크 허용 지연시간 |
+| `ops.health.disclosure.maxAgeDays` | `{"value":14}` | 공시 헬스체크 허용 지연일 |
+| `ops.health.macro.maxAgeDays` | `{"value":14}` | 매크로 헬스체크 허용 지연일 |
+| `ops.health.fundamental.maxAgeDays` | `{"value":120}` | 펀더멘털 헬스체크 허용 지연일 |
+| `operation.dbBackup.enabled` | `{"value":true}` | DB 백업 스케줄 활성 |
+| `operation.dbBackup.cron` | `{"value":"0 0 3 * * *"}` | DB 백업 스케줄 cron |
 
 ### 2.5 감사 로그 조회
 
@@ -176,840 +149,385 @@ POST /api/admin/settings/reset
 GET /api/admin/audit-logs
 ```
 
-응답 `data`:
+최근 50건 역순 반환.
 
-```json
-[
-  {
-    "id": 1,
-    "actor": "admin",
-    "action": "UPDATE_SETTING:recommendation.short.count",
-    "beforeJson": "{\"value\":3}",
-    "afterJson": "{\"value\":5}"
-  }
-]
+---
+
+## 3. 운영 API ✅
+
+```
+/api/ops
 ```
 
-## 3. 종목 마스터 API
-
-추천, 예측, 백테스트 대상 종목을 관리한다.
-
-Base URL:
-
-```text
-/api/instruments
-```
-
-### 3.1 종목 목록 조회
+### 3.1 외부 연동 상태
 
 ```http
-GET /api/instruments?market=KOSPI
+GET /api/ops/external-health
 ```
 
-Query:
+KIS·Telegram·Codex·Stooq·KIND 키 설정 상태와 접근 가능 여부를 반환한다.
 
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| market | String | N | KOSPI/KOSDAQ/NYSE/NASDAQ |
-
-응답 `data`:
-
-```json
-[
-  {
-    "ticker": "005930",
-    "market": "KOSPI",
-    "name": "삼성전자",
-    "sector": "반도체",
-    "enabled": true
-  }
-]
-```
-
-### 3.2 종목 단건 조회
+### 3.2 스케줄러 Job 수동 트리거
 
 ```http
-GET /api/instruments/{ticker}
+POST /api/ops/jobs/{jobName}/trigger
 ```
 
-대표 에러:
+Job을 즉시 한 번 실행한다. 응답은 즉시 반환되고 Job은 백그라운드에서 실행된다. 완료 결과는 Telegram 알림으로 확인한다.
 
-| code | message |
-|---:|---|
-| 404 | 종목을 찾을 수 없습니다. |
+**jobName:**
 
-### 3.3 종목 등록
-
-```http
-POST /api/instruments
-```
-
-Request:
-
-```json
-{
-  "ticker": "005930",
-  "market": "KOSPI",
-  "name": "삼성전자",
-  "sector": "반도체",
-  "enabled": true
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| ticker | 필수 |
-| market | 필수 |
-| name | 필수 |
-| enabled | 필수 |
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 409 | 이미 등록된 종목입니다. |
-
-### 3.4 종목 수정
-
-```http
-PUT /api/instruments/{ticker}
-```
-
-Request:
-
-```json
-{
-  "market": "KOSPI",
-  "name": "삼성전자",
-  "sector": "반도체",
-  "enabled": true
-}
-```
-
-## 4. 추천 API
-
-추천 엔진 결과를 저장하고 조회한다.
-
-Base URL:
-
-```text
-/api/recommendations
-```
-
-### 4.1 추천 목록 조회
-
-```http
-GET /api/recommendations?status=OPEN&ticker=005930
-```
-
-Query:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| status | String | N | OPEN/CLOSED/EXPIRED |
-| ticker | String | N | 종목 코드. ticker가 있으면 status보다 우선 적용 |
-
-응답 `data`:
-
-```json
-[
-  {
-    "id": 1,
-    "ticker": "005930",
-    "market": "KOSPI",
-    "term": "SHORT",
-    "entryPrice": 78400.0000,
-    "targetPrice": 82500.0000,
-    "stopPrice": 76200.0000,
-    "expectedExitAt": "2026-05-25",
-    "confidence": 78,
-    "signalsJson": "{\"rsi\":45,\"foreignBuyDays\":3}",
-    "modelVersion": "rule-v0",
-    "generatedAt": "2026-05-20T08:30:00",
-    "status": "OPEN"
-  }
-]
-```
-
-### 4.2 추천 단건 조회
-
-```http
-GET /api/recommendations/{id}
-```
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 404 | 추천을 찾을 수 없습니다. |
-
-### 4.3 추천 생성
-
-```http
-POST /api/recommendations
-```
-
-Request:
-
-```json
-{
-  "ticker": "005930",
-  "market": "KOSPI",
-  "term": "SHORT",
-  "entryPrice": 78400,
-  "targetPrice": 82500,
-  "stopPrice": 76200,
-  "expectedExitAt": "2026-05-25",
-  "confidence": 78,
-  "signalsJson": "{\"rsi\":45,\"foreignBuyDays\":3}",
-  "modelVersion": "rule-v0",
-  "generatedAt": "2026-05-20T08:30:00"
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| ticker | 필수, 현재 개발용 수동 입력에서는 등록된 후보 종목이어야 함 |
-| market | 필수 |
-| term | 필수, SHORT 또는 LONG |
-| entryPrice | 필수, 0 초과 |
-| targetPrice | 필수, 0 초과 |
-| stopPrice | 필수, 0 초과 |
-| expectedExitAt | 필수 |
-| confidence | 필수, 0~100 |
-| signalsJson | 필수, 유효한 JSON 문자열 |
-| modelVersion | 필수 |
-
-생성 시 `status`는 항상 `OPEN`으로 저장된다.
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 400 | 보유 기간 구분은 SHORT 또는 LONG이어야 합니다. |
-| 400 | 시그널 JSON 형식이 올바르지 않습니다. |
-| 404 | 등록되지 않은 종목은 추천할 수 없습니다. |
-
-### 4.4 추천 상태 수정
-
-```http
-PUT /api/recommendations/{id}/status
-```
-
-Request:
-
-```json
-{
-  "status": "CLOSED"
-}
-```
-
-허용 상태:
-
-| 값 | 설명 |
-|---|---|
-| OPEN | 진행 중 |
-| CLOSED | 평가 완료 또는 수동 종료 |
-| EXPIRED | 기간 만료 |
-
-## 5. 평가 API
-
-추천의 실제 성과를 저장하고 조회한다.
-
-Base URL:
-
-```text
-/api/evaluations
-```
-
-### 5.1 평가 목록 조회
-
-```http
-GET /api/evaluations?recommendationId=1
-```
-
-Query:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| recommendationId | Long | N | 추천 ID |
-
-### 5.2 평가 단건 조회
-
-```http
-GET /api/evaluations/{id}
-```
-
-### 5.3 평가 생성
-
-```http
-POST /api/evaluations
-```
-
-Request:
-
-```json
-{
-  "recommendationId": 1,
-  "actualExitPrice": 82500,
-  "exitReason": "TARGET_HIT",
-  "pnlPct": 5.2300,
-  "drawdownPct": 1.1200,
-  "hitTarget": true,
-  "evaluatedAt": "2026-05-25T15:30:00"
-}
-```
-
-허용 `exitReason`:
-
-| 값 | 설명 |
-|---|---|
-| TARGET_HIT | 목표가 도달 |
-| STOP_HIT | 손절가 이탈 |
-| TIME_OUT | 예상 매도일 만료 |
-| MANUAL_CLOSE | 수동 종료 |
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 400 | 청산 사유는 TARGET_HIT, STOP_HIT, TIME_OUT, MANUAL_CLOSE 중 하나여야 합니다. |
-| 404 | 평가할 추천을 찾을 수 없습니다. |
-
-## 6. 가격 예측 API
-
-가격 예측 모델 산출물을 저장하고 조회한다.
-
-Base URL:
-
-```text
-/api/predictions
-```
-
-### 6.1 가격 예측 목록 조회
-
-```http
-GET /api/predictions?ticker=005930
-```
-
-### 6.2 가격 예측 단건 조회
-
-```http
-GET /api/predictions/{id}
-```
-
-### 6.3 가격 예측 생성
-
-```http
-POST /api/predictions
-```
-
-Request:
-
-```json
-{
-  "ticker": "005930",
-  "horizonDays": 5,
-  "predictedPrice": 82500,
-  "modelVersion": "lightgbm-v0",
-  "generatedAt": "2026-05-20T08:25:00"
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| ticker | 필수, 현재 개발용 수동 입력에서는 등록된 후보 종목이어야 함 |
-| horizonDays | 필수, 1 이상 |
-| predictedPrice | 필수, 0 초과 |
-| modelVersion | 필수 |
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 404 | 등록되지 않은 종목은 예측할 수 없습니다. |
-
-## 7. 백테스트 API
-
-백테스트 실행 이력과 지표를 저장한다.
-
-Base URL:
-
-```text
-/api/backtests
-```
-
-### 7.1 백테스트 실행 목록 조회
-
-```http
-GET /api/backtests
-```
-
-### 7.2 백테스트 실행 단건 조회
-
-```http
-GET /api/backtests/{id}
-```
-
-### 7.3 백테스트 실행 저장
-
-```http
-POST /api/backtests
-```
-
-Request:
-
-```json
-{
-  "strategy": "rule-v0",
-  "periodFrom": "2021-05-20",
-  "periodTo": "2026-05-20",
-  "metricsJson": "{\"roi\":12.3,\"hitRate\":57.8,\"mdd\":-8.4,\"sharpe\":1.12}"
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| strategy | 필수 |
-| periodFrom | 필수 |
-| periodTo | 필수, periodFrom보다 빠를 수 없음 |
-| metricsJson | 필수, 유효한 JSON 문자열 |
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 400 | 백테스트 시작일은 종료일보다 늦을 수 없습니다. |
-| 400 | 지표 JSON 형식이 올바르지 않습니다. |
-
-## 8. 알림 로그 API
-
-Telegram/Kakao 발송 결과를 기록한다.
-
-Base URL:
-
-```text
-/api/notifications/logs
-```
-
-### 8.1 알림 로그 목록 조회
-
-```http
-GET /api/notifications/logs?status=SENT
-```
-
-Query:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| status | String | N | SENT/FAILED/SKIPPED |
-
-### 8.2 알림 로그 단건 조회
-
-```http
-GET /api/notifications/logs/{id}
-```
-
-### 8.3 알림 로그 저장
-
-```http
-POST /api/notifications/logs
-```
-
-Request:
-
-```json
-{
-  "channel": "TELEGRAM",
-  "payloadHash": "e3b0c44298fc1c149afbf4c8996fb924...",
-  "sentAt": "2026-05-20T08:30:03",
-  "status": "SENT",
-  "errorMessage": null
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| channel | 필수 |
-| payloadHash | 필수 |
-| status | 필수 |
-
-### 8.4 Telegram 테스트 발송
-
-```http
-POST /api/dev/notifications/test?message=Stock%20Advisor%20Telegram%20test
-```
-
-Response:
-
-```json
-{
-  "code": 200,
-  "data": {
-    "sent": true,
-    "devMode": false,
-    "statusCode": 200,
-    "errorMessage": null,
-    "message": "Stock Advisor Telegram test",
-    "logId": 10
-  },
-  "error_message": null
-}
-```
-
-`devMode=true`이면 `TELEGRAM_BOT_TOKEN=dev-placeholder` 로그 출력 모드다. 실제 발송 검증은 `devMode=false`, `sent=true`, `errorMessage=null`을 기준으로 본다. 실패 시 `errorMessage`에는 토큰/Chat ID 누락, Telegram API HTTP 오류, 네트워크 오류가 저장되고 같은 값이 `notification_log.error_message`에 남는다.
-
-## 9. Codex 호출 로그 API
-
-Codex CLI 호출 이력을 저장하고 조회한다. 프롬프트 원문은 저장하지 않고 해시와 길이만 저장하는 계약이다.
-
-Base URL:
-
-```text
-/api/codex/calls
-```
-
-### 9.1 Codex 호출 로그 목록 조회
-
-```http
-GET /api/codex/calls?caller=BRIEF_KR
-```
-
-Query:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| caller | String | N | BRIEF_KR/BRIEF_US/EXIT_CONFIRM/AR_PROPOSE 등 |
-
-### 9.2 Codex 호출 로그 단건 조회
-
-```http
-GET /api/codex/calls/{id}
-```
-
-### 9.3 Codex 호출 로그 저장
-
-```http
-POST /api/codex/calls
-```
-
-Request:
-
-```json
-{
-  "caller": "BRIEF_KR",
-  "promptHash": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
-  "promptLen": 2400,
-  "responseLen": 1800,
-  "toolsUsedJson": "{\"shell\":false,\"web\":false}",
-  "durationMs": 11200,
-  "succeeded": true,
-  "errorMessage": null,
-  "calledAt": "2026-05-20T08:25:00"
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| caller | 필수 |
-| promptHash | 필수 |
-| promptLen | 필수, 0 이상 |
-| toolsUsedJson | 선택, 입력 시 유효한 JSON 문자열 |
-| succeeded | 필수 |
-
-대표 에러:
-
-| code | message |
-|---:|---|
-| 400 | 사용 도구 JSON 형식이 올바르지 않습니다. |
-
-## 10. 데일리 브리프 API
-
-KRX/US/US_CLOSE 브리프 초안과 품질 점수를 저장한다.
-
-Base URL:
-
-```text
-/api/briefs
-```
-
-### 10.1 데일리 브리프 목록 조회
-
-```http
-GET /api/briefs?marketTrack=KRX
-```
-
-Query:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| marketTrack | String | N | KRX/US/US_CLOSE |
-
-### 10.2 데일리 브리프 단건 조회
-
-```http
-GET /api/briefs/{id}
-```
-
-### 10.3 데일리 브리프 저장
-
-```http
-POST /api/briefs
-```
-
-Request:
-
-```json
-{
-  "marketTrack": "KRX",
-  "briefMd": "## KR-PreOpen 브리핑\n- S&P +0.4%\n- 반도체 섹터 강세",
-  "draftNo": 1,
-  "coverage": 0.920,
-  "hallucinationFlags": 0,
-  "llmModel": "gpt-5",
-  "generatedAt": "2026-05-20T08:26:00"
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| marketTrack | 필수 |
-| briefMd | 필수 |
-| draftNo | 필수 |
-
-## 11. AutoResearch API
-
-야간 실험 반복 이력과 전략 버전을 저장한다.
-
-Base URL:
-
-```text
-/api/autoresearch
-```
-
-### 11.1 AutoResearch 실행 목록 조회
-
-```http
-GET /api/autoresearch/runs?jobRunId=9ef7b45d-6a8a-4ec8-89e9-20708d0b7d01
-```
-
-Query:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| jobRunId | UUID | N | 야간 작업 실행 UUID |
-
-### 11.2 AutoResearch 실행 단건 조회
-
-```http
-GET /api/autoresearch/runs/{id}
-```
-
-### 11.3 AutoResearch 실행 저장
-
-```http
-POST /api/autoresearch/runs
-```
-
-Request:
-
-```json
-{
-  "jobRunId": "9ef7b45d-6a8a-4ec8-89e9-20708d0b7d01",
-  "iterNo": 1,
-  "parentSha": "abc123",
-  "proposalSha": "def456",
-  "diffSummary": "RSI weight increased from 0.20 to 0.25",
-  "metricName": "walk_forward_sharpe",
-  "metricValue": 1.2300,
-  "championMetric": 1.1100,
-  "decision": "KEEP",
-  "durationMs": 280000,
-  "startedAt": "2026-05-24T03:00:00",
-  "endedAt": "2026-05-24T03:04:40"
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| jobRunId | 필수 |
-| iterNo | 필수 |
-| decision | 필수 |
-
-권장 `decision` 값:
-
-| 값 | 설명 |
-|---|---|
-| KEEP | 챔피언보다 개선되어 채택 |
-| DISCARD | 개선 실패로 폐기 |
-| ERROR | 실험 실패 |
-
-### 11.4 전략 버전 목록 조회
-
-```http
-GET /api/autoresearch/strategies?champion=true
-```
-
-Query:
-
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| champion | Boolean | N | 챔피언 전략 여부 |
-
-### 11.5 전략 버전 단건 조회
-
-```http
-GET /api/autoresearch/strategies/{id}
-```
-
-### 11.6 전략 버전 저장
-
-```http
-POST /api/autoresearch/strategies
-```
-
-Request:
-
-```json
-{
-  "semver": "v1.0.0",
-  "gitSha": "def456",
-  "metricValue": 1.2300,
-  "promotedAt": "2026-05-24T03:05:00",
-  "champion": true
-}
-```
-
-Validation:
-
-| 필드 | 조건 |
-|---|---|
-| semver | 필수 |
-| gitSha | 필수 |
-| metricValue | 필수 |
-| champion | 필수 |
-
-## 12. 시장 데이터 수집
-
-뉴스/공시/매크로 데이터를 저장하고 조회한다. 본문 전문은 저장하지 않고 제목, 링크, 메타데이터 중심으로 저장한다.
-
-| Method | URL | 설명 |
+| 값 | 실행 내용 | 스케줄 (평시) |
 |---|---|---|
-| GET | `/api/market-data/news` | 저장된 뉴스 조회 |
-| POST | `/api/market-data/news/sync` | RSS 뉴스 동기화 |
-| GET | `/api/market-data/disclosures` | 저장된 공시 조회 |
-| POST | `/api/market-data/disclosures/sync` | DART/SEC 공시 동기화 |
-| GET | `/api/market-data/macro-observations` | 저장된 FRED 매크로 관측값 조회 |
-| POST | `/api/market-data/macro-observations/sync` | FRED 매크로 관측값 동기화 |
-| GET | `/api/market-data/fundamentals` | 저장된 펀더멘털 지표 조회 |
-| POST | `/api/market-data/fundamentals/sync` | SEC Company Facts(US) / KIS 현재가 + DART 주요계정(KR) 펀더멘털 동기화 |
+| `krx-preopen` | KRX 유니버스 동기화 + 일봉 증분 + 단기·장기 추천 생성 + Telegram 알림 | 평일 08:30 KST |
+| `us-preopen` | 미국 심볼·시세 동기화 + 일봉 증분 + 추천 생성 + Telegram 알림 | 평일 DST 22:00 / 표준시 23:00 KST |
+| `backfill-kr` | KOSPI·KOSDAQ 일봉 히스토리 백필 (최대 50종목 × 120일) | 평일 18:10 KST |
+| `backfill-us` | NASDAQ·NYSE 일봉 히스토리 백필 (최대 50종목 × 180일) | 화~토 07:20 KST |
+| `feature-snapshot` | 전 종목 PIT feature 스냅샷 저장 + T+5·T+20 forward return 백필 | 평일 22:00 KST |
 
-공통 Query:
+응답:
 
-| 이름 | 타입 | 필수 | 설명 |
-|---|---|---:|---|
-| market | String | N | `KOSPI`, `KOSDAQ`, `NASDAQ`, `NYSE`, `ALL` |
-| ticker | String | N | 종목 코드. 뉴스/공시 조회 및 동기화에 사용 |
-| limit | Integer | N | 조회/동기화 개수 제한 |
-| seriesId | String | N | 매크로 지표 코드. 예: `DGS10`, `FEDFUNDS`, `CPIAUCSL` |
+```json
+{ "code": 200, "data": { "jobName": "krx-preopen", "status": "TRIGGERED" } }
+```
 
-펀더멘털 동기화는 `ticker`가 필요하다. 미국 시장은 SEC Company Facts, 한국 시장은 KIS 현재가와 DART 단일회사 주요계정을 사용한다.
+없는 jobName은 404 반환.
 
-설정:
+---
 
-| 설정 | 설명 |
-|---|---|
-| `DART_API_KEY` | 한국 DART 공시 수집용. 없으면 DART 동기화는 빈 결과를 반환 |
-| `SEC_USER_AGENT` | SEC EDGAR 요청 User-Agent |
+## 4. 성과 통계 API ✅
 
-## 13. 통계 API
-
-종료 추천의 사후 성과와 OPEN 추천의 페이퍼트레이딩 미실현 손익을 조회한다.
-
-Base URL:
-
-```text
+```
 /api/stats
 ```
 
 | Method | URL | 설명 |
 |---|---|---|
-| GET | `/api/stats/summary` | 전체/종료/진행/만료 개수, hit rate, 평균/누적 손익률, MDD 조회 |
-| GET | `/api/stats/daily` | 일별 평가 손익과 누적 손익 조회 |
-| GET | `/api/stats/by-strategy` | 전략 버전별 평가 성과 조회 |
-| GET | `/api/stats/paper-trading` | OPEN 추천의 최신 일봉 기준 미실현 손익과 비중 반영 손익 조회 |
+| GET | `/api/stats/summary` | 전체·종료·진행·만료 개수, hit rate, 평균·누적 손익률, MDD |
+| GET | `/api/stats/daily` | 일별 평가 손익, 누적 손익 |
+| GET | `/api/stats/by-strategy` | 전략 버전별 성과 |
+| GET | `/api/stats/paper-trading` | OPEN 추천 미실현 손익·비중·목표/손절 터치 현황 |
 
-### 13.1 페이퍼트레이딩 모니터링
-
-```http
-GET /api/stats/paper-trading
-```
-
-응답 `data` 주요 필드:
+### 4.1 페이퍼트레이딩 응답 주요 필드
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | openCount | Integer | OPEN 추천 수 |
-| pricedCount | Integer | 최신 `price_daily` 종가가 있어 계산 가능한 추천 수 |
+| pricedCount | Integer | 최신 일봉 가격이 있는 추천 수 |
 | avgUnrealizedPnlPct | Decimal | 단순 평균 미실현 손익률 |
-| weightedUnrealizedPnlPct | Decimal | `signalsJson.positionWeightPct`를 반영한 미실현 포트폴리오 손익률 |
-| totalWeightPct | Decimal | 계산 가능한 추천의 총 비중 |
-| targetTouchCount | Integer | 최신 종가가 목표가 이상인 추천 수 |
-| stopTouchCount | Integer | 최신 종가가 손절가 이하인 추천 수 |
-| positions | Array | 추천별 현재가, 거래일, 비중, 손익률, 목표/손절 이격률, 가격 상태 |
+| weightedUnrealizedPnlPct | Decimal | `signalsJson.positionWeightPct` 반영 손익률 |
+| targetTouchCount | Integer | 최신 종가 ≥ 목표가 추천 수 |
+| stopTouchCount | Integer | 최신 종가 ≤ 손절가 추천 수 |
+| positions | Array | 종목별 현재가·손익률·목표/손절 이격률 |
 
-`positionWeightPct`가 없는 과거 추천은 동일가중 fallback을 사용하되 종목당 20% 상한을 적용한다. 최신 가격이 없으면 해당 포지션은 `priceStatus=NO_PRICE`로 내려가고 요약 손익 계산에서는 제외된다.
+`positionWeightPct` 없는 추천은 동일가중 fallback, 종목당 20% 상한 적용.
 
-## 14. 프론트 연동 권장 순서
+---
 
-관리자 UI는 API 계약을 기준으로 다음 순서로 붙이는 것을 권장한다.
+## 5. 추천 API ✅ GET / 🔒 POST·PUT
 
-1. `POST /api/admin/settings/reset`으로 기본 설정 생성
-2. `GET /api/admin/settings`로 관리자 설정 화면 렌더링
-3. `PUT /api/admin/settings/{key}`로 개별 설정 저장
-4. `GET /api/instruments`로 개발용/수동 보정 종목 관리
-5. `GET /api/recommendations`로 오늘의 추천/이력 화면 구성
-6. `GET /api/evaluations`로 추천 성과 화면 구성
-7. `GET /api/stats/paper-trading`으로 OPEN 추천 페이퍼트레이딩 상태 구성
-8. `GET /api/backtests`, `GET /api/autoresearch/strategies`로 백테스트/전략 탭 구성
+```
+/api/recommendations
+```
 
-## 15. 현재 구현 범위와 다음 구현 대상
+### 5.1 추천 목록 조회
 
-현재 구현된 범위:
+```http
+GET /api/recommendations?status=OPEN&ticker=005930
+```
 
-| 영역 | 상태 |
+`ticker` 지정 시 `status`보다 우선 적용.
+
+응답 `data` 항목:
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| id | Long | 추천 ID |
+| ticker / market | String | 종목 코드 / 시장 |
+| term | String | `SHORT` / `LONG` |
+| entryPrice / targetPrice / stopPrice | Decimal | 진입·목표·손절 가격 |
+| expectedExitAt | Date | 예상 매도일 |
+| confidence | Integer | 신뢰도 0~100 |
+| signalsJson | String | RSI·MACD·뉴스 점수 등 근거 JSON |
+| modelVersion | String | 추천 생성 전략 버전 |
+| status | String | `OPEN` / `CLOSED` / `EXPIRED` |
+
+### 5.2 추천 단건 조회
+
+```http
+GET /api/recommendations/{id}
+```
+
+### 5.3 추천 생성 🔒
+
+```http
+POST /api/recommendations
+```
+
+KrxPreOpenJob·UsPreOpenJob이 직접 Service를 호출한다. HTTP로 호출할 필요 없음.
+
+### 5.4 추천 상태 변경 🔒
+
+```http
+PUT /api/recommendations/{id}/status
+```
+
+ExitMonitorJob이 자동 처리. 허용 상태: `OPEN` / `CLOSED` / `EXPIRED`.
+
+---
+
+## 6. 평가 API ✅ GET / 🔒 POST
+
+```
+/api/evaluations
+```
+
+### 6.1 평가 목록 조회
+
+```http
+GET /api/evaluations?recommendationId=1
+```
+
+### 6.2 평가 단건 조회
+
+```http
+GET /api/evaluations/{id}
+```
+
+### 6.3 평가 생성 🔒
+
+```http
+POST /api/evaluations
+```
+
+ExitMonitorJob이 목표가·손절가·만료 기준으로 자동 생성. `exitReason`: `TARGET_HIT` / `STOP_HIT` / `TIME_OUT` / `MANUAL_CLOSE`.
+
+---
+
+## 7. 시장 데이터 API ✅
+
+```
+/api/market-data
+```
+
+### 7.1 일봉 가격
+
+```http
+GET  /api/market-data/daily-prices?market=KOSPI&ticker=005930&limit=100
+POST /api/market-data/daily-prices/sync?market=ALL&limit=20&days=120
+```
+
+동기화는 KIS(한국) 또는 Yahoo Finance(미국)에서 증분 조회한다. KIS 호출 간 딜레이는 `collection.kis.dailyPrice.delayMs` 설정으로 조정한다.
+
+### 7.2 장중 가격
+
+```http
+GET /api/market-data/intraday-prices?market=KOSPI&ticker=005930&limit=100
+```
+
+### 7.3 뉴스
+
+```http
+GET  /api/market-data/news?market=KOSPI&ticker=005930&limit=20
+POST /api/market-data/news/sync?market=KOSPI&ticker=005930&limit=5
+```
+
+한국은 Google News RSS + Naver 뉴스 검색 API, 미국은 Yahoo Finance RSS + Google News RSS에서 수집한다. 출처별 `limit`건을 조회해 URL 중복 제거 후 최대 `limit × 2`건을 저장한다. 발행 시각을 KST로 정규화하고 **수집 실행일 당일 뉴스만** 저장한다. Naver 키 미설정 시 한국은 Google News RSS만 사용한다.
+
+### 7.4 공시
+
+```http
+GET  /api/market-data/disclosures?market=KOSPI&ticker=005930
+POST /api/market-data/disclosures/sync?market=KOSPI&limit=20
+```
+
+한국: DART API Key 필요. 미국: SEC EDGAR Atom feed (키 불필요).
+
+### 7.5 매크로
+
+```http
+GET  /api/market-data/macro-observations?seriesId=DGS10&limit=10
+POST /api/market-data/macro-observations/sync?seriesId=FEDFUNDS&limit=5
+```
+
+FRED 공개 CSV. `seriesId` 없으면 기본 핵심 지표 묶음 수집.
+
+### 7.6 펀더멘털
+
+```http
+GET  /api/market-data/fundamentals?market=NASDAQ&ticker=AAPL
+POST /api/market-data/fundamentals/sync?market=NASDAQ&ticker=AAPL
+```
+
+미국: SEC Company Facts. 한국: KIS 현재가 + DART 주요계정. `ticker` 필수.
+
+---
+
+## 8. 유니버스 API ✅
+
+```
+/api/universe
+```
+
+| Method | URL | 설명 |
+|---|---|---|
+| GET | `/api/universe` | 시장 후보군 조회 (`market`, `tradable`, `minMarketCap`, `minAvgTurnover`, `minLastPrice`) |
+| POST | `/api/universe/sync/kr-symbols` | KIND 상장법인 다운로드로 KOSPI·KOSDAQ 심볼 동기화 |
+| POST | `/api/universe/sync/us-symbols` | NASDAQ Trader 공개 파일로 NASDAQ·NYSE 심볼 동기화 |
+| POST | `/api/universe/sync/us-prices` | Stooq 공개 CSV로 미국 후보군 최근 시세 갱신 |
+
+심볼 동기화는 ticker 목록만 저장한다. 가격·시총은 이후 `daily-prices/sync` 단계에서 채워진다.
+
+---
+
+## 9. 백테스트 API ✅ GET·simulate / 🔒 POST(저장)
+
+```
+/api/backtests
+```
+
+| Method | URL | Swagger | 설명 |
+|---|---|---|---|
+| GET | `/api/backtests` | ✅ | 실행 목록 조회 |
+| GET | `/api/backtests/{id}` | ✅ | 단건 조회 |
+| POST | `/api/backtests/simulate` | ✅ | 일봉 기반 룰 백테스트 실행 후 결과 저장 |
+| POST | `/api/backtests` | 🔒 | 외부 결과 저장 (AutoResearch 내부 호출) |
+
+### 9.1 백테스트 시뮬레이션
+
+```http
+POST /api/backtests/simulate
+```
+
+```json
+{
+  "strategy": "ma20-breakout-v0",
+  "market": "KOSPI",
+  "periodFrom": "2024-01-01",
+  "periodTo": "2026-06-01",
+  "maxTickers": 30,
+  "holdingDays": 20,
+  "targetPct": 3.0,
+  "stopPct": 2.0
+}
+```
+
+20일 이동평균 돌파 룰 기반. 저장된 `price_daily` 사용.
+
+---
+
+## 10. AutoResearch API ✅ GET·auto / 🔒 POST(저장)
+
+```
+/api/autoresearch
+```
+
+| Method | URL | Swagger | 설명 |
+|---|---|---|---|
+| GET | `/api/autoresearch/runs` | ✅ | 실험 목록 (`?jobRunId=uuid`) |
+| GET | `/api/autoresearch/runs/{id}` | ✅ | 단건 조회 |
+| POST | `/api/autoresearch/runs/auto` | ✅ | 가중치 후보 자동 생성 → 백테스트 → champion 갱신 |
+| POST | `/api/autoresearch/runs` | 🔒 | 실험 결과 저장 (내부 호출) |
+| GET | `/api/autoresearch/strategies` | ✅ | 전략 버전 목록 (`?champion=true`) |
+| GET | `/api/autoresearch/strategies/{id}` | ✅ | 단건 조회 |
+| POST | `/api/autoresearch/strategies` | 🔒 | 전략 버전 저장 (내부 호출) |
+
+### 10.1 자동 실험 (`/runs/auto`)
+
+scoring weights 변형 후보를 생성해 백테스트하고, 기존 champion보다 성과가 좋으면 champion 전략 버전을 저장한다. `AutoresearchJob`이 야간 자동 실행하지만 수동 호출도 가능하다.
+
+---
+
+## 11. 알림 로그 API ✅ GET / 🔒 POST
+
+```
+/api/notifications/logs
+```
+
+| Method | URL | Swagger | 설명 |
+|---|---|---|---|
+| GET | `/api/notifications/logs?status=SENT` | ✅ | 목록 조회 (`SENT` / `FAILED` / `SKIPPED`) |
+| GET | `/api/notifications/logs/{id}` | ✅ | 단건 조회 |
+| POST | `/api/notifications/logs` | 🔒 | 발송 이력 저장 (NotificationService 내부 호출) |
+
+---
+
+## 12. Codex 호출 로그 API ✅ GET / 🔒 POST
+
+```
+/api/codex/calls
+```
+
+| Method | URL | Swagger | 설명 |
+|---|---|---|---|
+| GET | `/api/codex/calls?caller=BRIEF_KR` | ✅ | 목록 조회 |
+| GET | `/api/codex/calls/{id}` | ✅ | 단건 조회 |
+| POST | `/api/codex/calls` | 🔒 | 호출 이력 저장 (CodexClient 내부 호출) |
+
+프롬프트 원문은 저장하지 않고 해시·길이·성공 여부·소요 시간만 저장한다.
+
+---
+
+## 13. 데일리 브리프 API ✅ GET / 🔒 POST
+
+```
+/api/briefs
+```
+
+| Method | URL | Swagger | 설명 |
+|---|---|---|---|
+| GET | `/api/briefs?marketTrack=KRX` | ✅ | 목록 조회 (`KRX` / `US` / `US_CLOSE`) |
+| GET | `/api/briefs/{id}` | ✅ | 단건 조회 |
+| POST | `/api/briefs` | 🔒 | 브리프 저장 (KrxPreOpenJob·UsPreOpenJob 내부 호출) |
+
+---
+
+## 14. Swagger 숨김 전용 엔드포인트
+
+### 14.1 내부 플로우 전용 🔒
+
+HTTP 접근은 가능하지만 Swagger에 미노출. 모두 Spring Service 직접 호출로 동작하므로 HTTP로 별도 호출 불필요.
+
+| 엔드포인트 | 호출자 |
 |---|---|
-| API 계약 | 구현 |
-| Swagger 문서 | 구현 |
-| MSSQL JPA 엔티티 | 구현 |
-| DTO 요청/응답 | 구현 |
-| 기본 Validation | 구현 |
-| CRUD성 저장/조회 서비스 | 구현 |
+| `POST /api/recommendations` | KrxPreOpenJob · UsPreOpenJob |
+| `PUT /api/recommendations/{id}/status` | ExitMonitorJob |
+| `POST /api/evaluations` | ExitMonitorJob |
+| `POST /api/backtests` | AutoResearchJob |
+| `POST /api/autoresearch/runs` | AutoResearchJob |
+| `POST /api/autoresearch/strategies` | AutoResearchJob |
+| `POST /api/briefs` | KrxPreOpenJob · UsPreOpenJob |
+| `POST /api/codex/calls` | CodexClient |
+| `POST /api/notifications/logs` | NotificationService |
 
-다음 구현 대상:
+### 14.2 개발 전용 🚫
 
-| 영역 | 내용 |
+HTTP 접근은 가능하지만 운영 환경에서 호출 금지. 추후 `@Profile("dev")`로 prod 미등록 예정.
+
+| Base URL | 설명 |
 |---|---|
-| 실제 데이터 수집 | 뉴스 RSS, DART/SEC 공시, FRED 매크로, SEC/KIS/DART 펀더멘털 수집과 룰 기반 감성 점수 1차 구현 |
-| 스케줄러 | KRX/US 프리오픈, US 마감, ExitMonitor, AutoResearch Job |
-| 추천 엔진 | FeatureBuilder, RecommendationEngine, PricePredictor |
-| 알림 발송 | Telegram/Kakao 실제 발송 클라이언트 |
-| Codex 실행 | Codex CLI 프로세스 호출, budget guard, fallback |
-| 통계 API | ROI, Hit Rate, MDD, Sharpe 집계 API |
-| 보안 | BasicAuth, 관리자 비밀번호, rate limit |
+| `POST /api/dev/recommendations/generate` | 개발용 더미 추천 생성 |
+| `POST /api/dev/universe/seed` | 개발용 유니버스 시드 저장 |
+| `POST /api/dev/brief/generate` | 개발용 브리프 생성 |
+| `POST /api/dev/notifications/test` | Telegram 테스트 발송 |
+| `GET/POST/PUT /api/instruments` | 개발용 종목 seed 관리 |
+| `GET /api/features` | feature 점수 직접 조회 |
+| `GET/POST /api/predictions` | 가격 예측 조회·생성 |
+
+---
+
+## 15. 스케줄러 Job 전체 목록
+
+| Job | 스케줄 | 설명 |
+|---|---|---|
+| `KrxPreOpenJob` | 평일 08:30 KST | 한국 유니버스 동기화 + 일봉 증분 + 추천 생성 + 알림 |
+| `UsPreOpenJob` | 평일 22:00/23:00 KST | 미국 유니버스·시세 동기화 + 일봉 증분 + 추천 생성 + 알림 |
+| `DailyPriceBackfillJob` (KRX) | 평일 18:10 KST | KOSPI·KOSDAQ 일봉 히스토리 백필 |
+| `DailyPriceBackfillJob` (US) | 화~토 07:20 KST | NASDAQ·NYSE 일봉 히스토리 백필 |
+| `ExitMonitorJob` | 평일 장중 5분 주기 | 목표가·손절가·만료 기준 자동 평가 + 추천 상태 변경 |
+| `FeatureSnapshotJob` | 평일 22:00 KST | 전 종목 PIT feature 스냅샷 + T+5·T+20 forward return 백필 |
+| `MarketDataCollectionJob` | 별도 스케줄 | 뉴스·공시·매크로·펀더멘털 자동 수집 |
+| `UsCloseSummaryJob` | 미국 마감 후 | US 마감 요약 알림 |
+| `AutoResearchJob` | 야간 | scoring weights 자동 실험 + champion 전략 갱신 |
+
+수동 실행: `POST /api/ops/jobs/{jobName}/trigger` (krx-preopen · us-preopen · backfill-kr · backfill-us · feature-snapshot)

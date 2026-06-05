@@ -3,6 +3,7 @@ package com.parkdh.stockadvisor.application.feature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkdh.stockadvisor.domain.marketdata.DisclosureEventEntity;
+import com.parkdh.stockadvisor.domain.marketdata.ContextRelationAnalysisEntity;
 import com.parkdh.stockadvisor.domain.marketdata.FundamentalMetricEntity;
 import com.parkdh.stockadvisor.domain.marketdata.MacroObservationEntity;
 import com.parkdh.stockadvisor.domain.marketdata.NewsArticleEntity;
@@ -10,6 +11,7 @@ import com.parkdh.stockadvisor.domain.price.PriceDailyEntity;
 import com.parkdh.stockadvisor.domain.setting.AppSettingEntity;
 import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.DisclosureEventRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.ContextRelationAnalysisRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.FundamentalMetricRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.MacroObservationRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.NewsArticleRepository;
@@ -25,6 +27,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class UniverseFeatureBuilderTest {
@@ -44,6 +48,8 @@ class UniverseFeatureBuilderTest {
     private NewsArticleRepository newsArticleRepository;
     @Mock
     private DisclosureEventRepository disclosureEventRepository;
+    @Mock
+    private ContextRelationAnalysisRepository contextRelationAnalysisRepository;
     @Mock
     private MacroObservationRepository macroObservationRepository;
     @Mock
@@ -61,6 +67,7 @@ class UniverseFeatureBuilderTest {
                 priceDailyRepository,
                 newsArticleRepository,
                 disclosureEventRepository,
+                contextRelationAnalysisRepository,
                 macroObservationRepository,
                 fundamentalMetricRepository,
                 appSettingRepository,
@@ -85,7 +92,7 @@ class UniverseFeatureBuilderTest {
         when(marketUniverseRepository.findByMarketAndTradableAndDelistedAtIsNull("NASDAQ", true)).thenReturn(List.of(universe));
         when(priceDailyRepository.findByMarketAndTickerOrderByTradeDateDesc(eq("NASDAQ"), eq("AAPL"), any(Pageable.class)))
                 .thenReturn(uptrendHistory());
-        when(newsArticleRepository.findByMarketAndTickerOrderByPublishedAtDesc(eq("NASDAQ"), eq("AAPL"), any(Pageable.class))).thenReturn(List.<NewsArticleEntity>of());
+        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(), any(Pageable.class))).thenReturn(List.<NewsArticleEntity>of());
         when(disclosureEventRepository.findByMarketAndTickerOrderByDisclosedAtDesc(eq("NASDAQ"), eq("AAPL"), any(Pageable.class))).thenReturn(List.<DisclosureEventEntity>of());
         when(macroObservationRepository.findAllByOrderByObservedDateDesc(any(Pageable.class))).thenReturn(List.<MacroObservationEntity>of());
         when(fundamentalMetricRepository.findByMarketAndTickerOrderByPeriodEndDesc(eq("NASDAQ"), eq("AAPL"), any(Pageable.class))).thenReturn(List.<FundamentalMetricEntity>of());
@@ -117,7 +124,7 @@ class UniverseFeatureBuilderTest {
                 .thenReturn(history("BBB", middleTrendCloses()));
         when(priceDailyRepository.findByMarketAndTickerOrderByTradeDateDesc(eq("NASDAQ"), eq("CCC"), any(Pageable.class)))
                 .thenReturn(history("CCC", weakTrendCloses()));
-        when(newsArticleRepository.findByMarketAndTickerOrderByPublishedAtDesc(eq("NASDAQ"), any(), any(Pageable.class))).thenReturn(List.<NewsArticleEntity>of());
+        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(eq("NASDAQ"), any(), any(), any(), any(Pageable.class))).thenReturn(List.<NewsArticleEntity>of());
         when(disclosureEventRepository.findByMarketAndTickerOrderByDisclosedAtDesc(eq("NASDAQ"), any(), any(Pageable.class))).thenReturn(List.<DisclosureEventEntity>of());
         when(macroObservationRepository.findAllByOrderByObservedDateDesc(any(Pageable.class))).thenReturn(List.<MacroObservationEntity>of());
         when(fundamentalMetricRepository.findByMarketAndTickerOrderByPeriodEndDesc(eq("NASDAQ"), any(), any(Pageable.class))).thenReturn(List.<FundamentalMetricEntity>of());
@@ -150,7 +157,7 @@ class UniverseFeatureBuilderTest {
         LocalDate asOf = LocalDate.now();
         when(priceDailyRepository.findByMarketAndTickerAndTradeDateLessThanEqualOrderByTradeDateDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class)))
                 .thenReturn(uptrendHistory());
-        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtLessThanEqualOrderByPublishedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(Pageable.class))).thenReturn(List.<NewsArticleEntity>of());
+        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(), any(Pageable.class))).thenReturn(List.<NewsArticleEntity>of());
         when(disclosureEventRepository.findByMarketAndTickerAndDisclosedAtLessThanEqualOrderByDisclosedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(Pageable.class))).thenReturn(List.<DisclosureEventEntity>of());
         when(macroObservationRepository.findByObservedDateLessThanEqualOrderByObservedDateDesc(eq(asOf), any(Pageable.class))).thenReturn(List.<MacroObservationEntity>of());
         when(fundamentalMetricRepository.findByMarketAndTickerAndPeriodEndLessThanEqualOrderByPeriodEndDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class))).thenReturn(List.<FundamentalMetricEntity>of());
@@ -172,6 +179,56 @@ class UniverseFeatureBuilderTest {
         int liquidityHeavy = builder.buildFeatureAsOf(universe, asOf).totalScore();
 
         assertThat(technicalHeavy).isNotEqualTo(liquidityHeavy);
+    }
+
+    @Test
+    void buildFeatureAsOfReadsOnlyNewsPublishedOnAsOfDate() {
+        MarketUniverseEntity universe = universe("AAPL");
+        LocalDate asOf = LocalDate.of(2026, 6, 4);
+        when(priceDailyRepository.findByMarketAndTickerAndTradeDateLessThanEqualOrderByTradeDateDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class)))
+                .thenReturn(uptrendHistory());
+        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(), any(Pageable.class)))
+                .thenReturn(List.of());
+        when(disclosureEventRepository.findByMarketAndTickerAndDisclosedAtLessThanEqualOrderByDisclosedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(Pageable.class))).thenReturn(List.of());
+        when(macroObservationRepository.findByObservedDateLessThanEqualOrderByObservedDateDesc(eq(asOf), any(Pageable.class))).thenReturn(List.of());
+        when(fundamentalMetricRepository.findByMarketAndTickerAndPeriodEndLessThanEqualOrderByPeriodEndDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class))).thenReturn(List.of());
+
+        builder.buildFeatureAsOf(universe, asOf);
+
+        verify(newsArticleRepository).findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(
+                eq("NASDAQ"),
+                eq("AAPL"),
+                eq(LocalDateTime.of(2026, 6, 4, 0, 0)),
+                eq(LocalDateTime.of(2026, 6, 4, 23, 59, 59, 999_999_999)),
+                any(Pageable.class)
+        );
+    }
+
+    @Test
+    void buildFeatureAsOfBlendsSameDayContextRelationScore() throws Exception {
+        MarketUniverseEntity universe = universe("AAPL");
+        LocalDate asOf = LocalDate.of(2026, 6, 4);
+        when(priceDailyRepository.findByMarketAndTickerAndTradeDateLessThanEqualOrderByTradeDateDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class)))
+                .thenReturn(uptrendHistory());
+        when(newsArticleRepository.findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(), any(Pageable.class))).thenReturn(List.of());
+        when(disclosureEventRepository.findByMarketAndTickerAndDisclosedAtLessThanEqualOrderByDisclosedAtDesc(eq("NASDAQ"), eq("AAPL"), any(), any(Pageable.class))).thenReturn(List.of());
+        when(macroObservationRepository.findByObservedDateLessThanEqualOrderByObservedDateDesc(eq(asOf), any(Pageable.class))).thenReturn(List.of());
+        when(fundamentalMetricRepository.findByMarketAndTickerAndPeriodEndLessThanEqualOrderByPeriodEndDesc(eq("NASDAQ"), eq("AAPL"), eq(asOf), any(Pageable.class))).thenReturn(List.of());
+        when(contextRelationAnalysisRepository.findByMarketAndTickerAndAnalysisDate("NASDAQ", "AAPL", asOf))
+                .thenReturn(Optional.of(new ContextRelationAnalysisEntity(
+                        "AAPL", "NASDAQ", asOf, "POSITIVE", 90, "LOW", 100,
+                        "News and disclosure reinforce each other.", "[\"growth\"]", "[]",
+                        "test", LocalDateTime.now()
+                )));
+
+        UniverseFeature feature = builder.buildFeatureAsOf(universe, asOf);
+        JsonNode featureJson = objectMapper.readTree(feature.featureJson());
+
+        assertThat(featureJson.get("relationScore").asInt()).isEqualTo(100);
+        assertThat(featureJson.get("relationDirection").asText()).isEqualTo("POSITIVE");
+        assertThat(featureJson.get("relationSummary").asText()).contains("reinforce");
+        assertThat(featureJson.get("contextScore").asInt()).isGreaterThan(featureJson.get("baseContextScore").asInt());
+        verify(contextRelationAnalysisRepository).findByMarketAndTickerAndAnalysisDate("NASDAQ", "AAPL", asOf);
     }
 
     private MarketUniverseEntity universe(String ticker) {

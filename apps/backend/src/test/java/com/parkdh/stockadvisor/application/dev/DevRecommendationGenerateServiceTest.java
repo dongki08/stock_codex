@@ -83,7 +83,8 @@ class DevRecommendationGenerateServiceTest {
                 LocalDate.now().plusDays(5),
                 "last-price-v1"
         );
-        when(recommendationEngine.selectTopCandidates("NASDAQ", 3)).thenReturn(List.of(candidate));
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 3, "SHORT")).thenReturn(List.of(candidate));
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 3, "LONG")).thenReturn(List.of(candidate));
         when(pricePredictor.predict(any(RecommendationCandidate.class), any(String.class))).thenReturn(predicted);
         when(confidenceService.estimateConfidence("NASDAQ", "SHORT", 84)).thenReturn(62);
         when(confidenceService.estimateConfidence("NASDAQ", "LONG", 84)).thenReturn(58);
@@ -118,7 +119,8 @@ class DevRecommendationGenerateServiceTest {
                 candidate("EEE", 70),
                 candidate("FFF", 70)
         );
-        when(recommendationEngine.selectTopCandidates("NASDAQ", 18)).thenReturn(candidates);
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 18, "SHORT")).thenReturn(candidates);
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 3, "LONG")).thenReturn(List.of(candidates.get(0)));
         when(pricePredictor.predict(candidates.get(0), "SHORT")).thenReturn(predicted("AAA", 1, 5));
         when(pricePredictor.predict(candidates.get(1), "SHORT")).thenReturn(predicted("BBB", 5, 1));
         when(pricePredictor.predict(candidates.get(2), "SHORT")).thenReturn(predicted("CCC", 5, 1));
@@ -184,7 +186,8 @@ class DevRecommendationGenerateServiceTest {
                 LocalDate.now().plusDays(5),
                 "last-price-v1"
         );
-        when(recommendationEngine.selectTopCandidates("NASDAQ", 3)).thenReturn(List.of(noPrice, priced));
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 3, "SHORT")).thenReturn(List.of(noPrice, priced));
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 3, "LONG")).thenReturn(List.of(noPrice, priced));
         when(pricePredictor.predict(noPrice, "SHORT")).thenThrow(new CustomException("가격 데이터가 없어 추천을 생성할 수 없습니다: NO_PRICE", 422));
         when(pricePredictor.predict(priced, "SHORT")).thenReturn(predicted);
         when(pricePredictor.predict(priced, "LONG")).thenReturn(predicted);
@@ -228,7 +231,8 @@ class DevRecommendationGenerateServiceTest {
         );
         StrategyVersionEntity oldChampion = new StrategyVersionEntity("v1.0.0", "old", BigDecimal.ONE, LocalDate.now().minusDays(2).atStartOfDay(), true);
         StrategyVersionEntity latestChampion = new StrategyVersionEntity("v1.2.0", "new", BigDecimal.TEN, LocalDate.now().minusDays(1).atStartOfDay(), true);
-        when(recommendationEngine.selectTopCandidates("NASDAQ", 3)).thenReturn(List.of(candidate));
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 3, "SHORT")).thenReturn(List.of(candidate));
+        when(recommendationEngine.selectTopCandidatesForTerm("NASDAQ", 3, "LONG")).thenReturn(List.of(candidate));
         when(pricePredictor.predict(any(RecommendationCandidate.class), any(String.class))).thenReturn(predicted);
         when(confidenceService.estimateConfidence("NASDAQ", "SHORT", 84)).thenReturn(62);
         when(confidenceService.estimateConfidence("NASDAQ", "LONG", 84)).thenReturn(58);

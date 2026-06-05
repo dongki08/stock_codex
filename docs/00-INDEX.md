@@ -1,7 +1,7 @@
 # 📚 Stock Advisor 문서 인덱스
 
 > 모든 문서의 시작점. **어떤 문서를 봐야 하는지 여기서 결정.**
-> 최종 정리: 2026-06-02 · 코드 기준: `apps/backend` (Spring Boot 3.3 / Java 21 / MSSQL / Flyway V10)
+> 최종 정리: 2026-06-04 · 코드 기준: `apps/backend` (Spring Boot 3.3 / Java 21 / MSSQL / Flyway V13)
 
 ---
 
@@ -37,6 +37,10 @@
 | 40 | [40-RETURN-STRATEGY](40-RETURN-STRATEGY.md) | 수익/품질 | 수익률 개선 작업지시서 | 🟢 신규 |
 | 41 | [41-DEFECTS-AND-FIXES](41-DEFECTS-AND-FIXES.md) | 수익/품질 | 결함 목록 + 수정 이력 | 🟢 이력 |
 | — | [WORKLOG](WORKLOG.md) | 메타 | 날짜별 작업 일지(에이전트 자동 기록, append-only) | 🟢 |
+| — | [Multi-Source News Design](superpowers/specs/2026-06-04-multi-source-news-design.md) | 설계 | 한국·미국 뉴스 멀티소스 수집 설계 | 🟢 |
+| — | [Multi-Source News Plan](superpowers/plans/2026-06-04-multi-source-news-plan.md) | 계획 | 멀티소스 뉴스 구현 계획 | 🟢 |
+| — | [Context Relation Analysis Design](superpowers/specs/2026-06-04-context-relation-analysis-design.md) | 설계 | 뉴스·공시 관계 분석 및 추천 보조 신호 설계 | 🟢 |
+| — | [Context Relation Analysis Plan](superpowers/plans/2026-06-04-context-relation-analysis-plan.md) | 계획 | 관계 분석 구현 계획 | 🟢 |
 | 90 | [90-archive/](90-archive/) | 아카이브 | 초기 plan/design (2026-05-19, 동결) | ⚪ 동결 |
 
 상태 범례: 🟢 현행 · 🟡 부분 스테일(날짜 확인) · 🟠 일부 정정 표기 · ⚪ 동결(갱신 안 함)

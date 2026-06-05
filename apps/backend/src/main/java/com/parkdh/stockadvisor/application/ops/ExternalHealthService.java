@@ -68,7 +68,7 @@ public class ExternalHealthService { // 외부 연동 상태 서비스를 정의
                 codexDailyBudget(),
                 configured("DART", dartProperties.apiKey(), "DART API 키가 설정되어 있습니다.", "DART API 키가 dev-placeholder입니다."),
                 configured("SEC EDGAR", secProperties.userAgent(), "SEC User-Agent가 설정되어 있습니다.", "SEC User-Agent가 dev-placeholder입니다."),
-                publicSource("RSS", "Google News/Yahoo Finance RSS 공개 피드를 사용합니다."),
+                publicSource("RSS", "KR Google/Naver, US Yahoo/Google 뉴스 소스를 사용합니다."),
                 publicSource("FRED", "FRED 공개 CSV 소스를 사용하며 기본 지표는 별도 키가 필요 없습니다."),
                 publicSource("Stooq", "공개 CSV 소스를 사용하며 별도 키가 필요 없습니다."),
                 publicSource("KIND", "KRX KIND 상장법인 공개 목록을 사용하며 별도 키가 필요 없습니다."),

@@ -65,7 +65,7 @@ public class RecommendationController { // 추천 컨트롤러를 정의한다.
         return ResultDto.success(recommendationService.getRecommendation(id)); // 서비스 조회 결과를 성공 응답으로 래핑해 반환한다.
     } // 추천 단건 조회 API를 종료한다.
 
-    @Operation(summary = "추천 생성", description = """
+    @Operation(hidden = true, summary = "추천 생성", description = """
             추천 엔진 또는 운영자가 추천 결과를 저장한다.
             **사용 목적:**
             - KRX/US 프리오픈 추천 결과 DB 적재
@@ -92,7 +92,7 @@ public class RecommendationController { // 추천 컨트롤러를 정의한다.
         return ResultDto.success(recommendationService.createRecommendation(request)); // 서비스 생성 결과를 성공 응답으로 래핑해 반환한다.
     } // 추천 생성 API를 종료한다.
 
-    @Operation(summary = "추천 상태 수정", description = """
+    @Operation(hidden = true, summary = "추천 상태 수정", description = """
             추천의 상태를 OPEN/CLOSED/EXPIRED 중 하나로 변경한다.
             **사용 목적:**
             - 목표가 도달, 손절, 시간 만료 평가 후 추천 상태 반영

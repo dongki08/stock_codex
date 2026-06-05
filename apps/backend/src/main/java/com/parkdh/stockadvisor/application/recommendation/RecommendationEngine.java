@@ -112,6 +112,47 @@ public class RecommendationEngine {
         return null;
     }
 
+    public List<RecommendationCandidate> selectTopCandidatesForTerm(String market, int count, String term) {
+        int maxPerSector = resolveIntSetting("recommendation.sector.max", 2);
+        List<RecommendationCandidate> all = buildCandidates(market).stream()
+                .sorted(termComparator(term))
+                .toList();
+        if (maxPerSector <= 0) {
+            return all.stream().limit(count).toList();
+        }
+        Map<String, Integer> sectorCounts = new LinkedHashMap<>();
+        return all.stream()
+                .filter(candidate -> {
+                    String sector = normalizeSector(candidate.sector());
+                    int used = sectorCounts.getOrDefault(sector, 0);
+                    if (used >= maxPerSector) return false;
+                    sectorCounts.put(sector, used + 1);
+                    return true;
+                })
+                .limit(count)
+                .toList();
+    }
+
+    private Comparator<RecommendationCandidate> termComparator(String term) {
+        if ("SHORT".equals(term)) {
+            return Comparator.comparingInt((RecommendationCandidate c) ->
+                    readFeatureScore(c.featureJson(), "technicalScore", c.score()))
+                    .reversed().thenComparing(RecommendationCandidate::ticker);
+        }
+        return Comparator.comparingInt((RecommendationCandidate c) ->
+                readFeatureScore(c.featureJson(), "contextScore", c.score()))
+                .reversed().thenComparing(RecommendationCandidate::ticker);
+    }
+
+    private int readFeatureScore(String featureJson, String field, int defaultValue) {
+        try {
+            JsonNode node = objectMapper.readTree(featureJson).path(field);
+            return node.isNumber() ? node.asInt(defaultValue) : defaultValue;
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+
     private Comparator<RecommendationCandidate> candidateComparator() {
         return Comparator.comparing(RecommendationCandidate::score).reversed().thenComparing(RecommendationCandidate::ticker);
     }

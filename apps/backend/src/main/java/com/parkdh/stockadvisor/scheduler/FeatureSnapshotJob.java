@@ -39,6 +39,8 @@ public class FeatureSnapshotJob {
     private final MarketUniverseRepository marketUniverseRepository;
     private final PriceDailyRepository priceDailyRepository;
 
+    public void trigger() { runDailySnapshot(); }
+
     // 매 평일 22시 (KST) — 한국장·미국장 모두 마감 후
     @Scheduled(cron = "0 0 22 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional

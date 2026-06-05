@@ -91,6 +91,11 @@ stock-advisor:
     chat-id: dev-placeholder          # 텔레그램 채팅/채널 ID (알림 수신처)
   dart:
     api-key: dev-placeholder          # DART 전자공시 API 키 (한국 공시 수집)
+  naver-news:
+    client-id: dev-placeholder        # 네이버 검색 API Client ID (한국 뉴스 수집)
+    client-secret: dev-placeholder    # 네이버 검색 API Client Secret
+  krx-openapi:
+    auth-key: dev-placeholder         # KRX OpenAPI 인증키 (국장 일별매매정보)
   sec:
     user-agent: StockAdvisor/1.0 contact@example.com  # SEC EDGAR 요청 헤더 (미국 공시 수집)
   sentiment:

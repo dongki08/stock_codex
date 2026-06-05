@@ -28,6 +28,11 @@ stock-advisor:
     pool-size: ${SCHEDULER_POOL_SIZE:8}
   dart:
     api-key: ${DART_API_KEY:dev-placeholder}
+  naver-news:
+    client-id: ${NAVER_CLIENT_ID:dev-placeholder}
+    client-secret: ${NAVER_CLIENT_SECRET:dev-placeholder}
+  krx-openapi:
+    auth-key: ${KRX_OPENAPI_KEY:dev-placeholder}
   sec:
     user-agent: ${SEC_USER_AGENT:StockAdvisor/1.0 contact@example.com}
   codex:

@@ -62,7 +62,7 @@ public class EvaluationController { // 평가 컨트롤러를 정의한다.
         return ResultDto.success(evaluationService.getEvaluation(id)); // 서비스 조회 결과를 성공 응답으로 래핑해 반환한다.
     } // 평가 단건 조회 API를 종료한다.
 
-    @Operation(summary = "평가 생성", description = """
+    @Operation(hidden = true, summary = "평가 생성", description = """
             추천의 실제 결과를 평가 테이블에 저장한다.
             **사용 목적:**
             - 목표가 도달, 손절, 시간 만료 결과 기록

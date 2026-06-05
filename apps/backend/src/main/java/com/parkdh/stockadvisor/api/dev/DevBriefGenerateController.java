@@ -3,6 +3,7 @@ package com.parkdh.stockadvisor.api.dev;
 import com.parkdh.stockadvisor.api.brief.dto.DailyBriefResponse;
 import com.parkdh.stockadvisor.application.brief.DailyBriefService;
 import com.parkdh.stockadvisor.global.dto.ResultDto;
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+@Hidden
 @RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/dev/brief")

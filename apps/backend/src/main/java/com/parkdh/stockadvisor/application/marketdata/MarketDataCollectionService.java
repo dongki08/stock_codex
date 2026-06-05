@@ -9,6 +9,7 @@ import com.parkdh.stockadvisor.domain.marketdata.DisclosureEventEntity;
 import com.parkdh.stockadvisor.domain.marketdata.FundamentalMetricEntity;
 import com.parkdh.stockadvisor.domain.marketdata.MacroObservationEntity;
 import com.parkdh.stockadvisor.domain.marketdata.NewsArticleEntity;
+import com.parkdh.stockadvisor.domain.universe.MarketUniverseEntity;
 import com.parkdh.stockadvisor.global.exception.CustomException;
 import com.parkdh.stockadvisor.infrastructure.marketdata.disclosure.DisclosureClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.fundamental.DartFundamentalClient;
@@ -16,11 +17,13 @@ import com.parkdh.stockadvisor.infrastructure.marketdata.fundamental.SecFundamen
 import com.parkdh.stockadvisor.infrastructure.marketdata.kr.KisApiClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.macro.FredMacroClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.news.RssNewsClient;
+import com.parkdh.stockadvisor.infrastructure.marketdata.news.NaverNewsClient;
 import com.parkdh.stockadvisor.infrastructure.marketdata.news.SentimentAnalysisClient;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.DisclosureEventRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.FundamentalMetricRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.MacroObservationRepository;
 import com.parkdh.stockadvisor.infrastructure.persistence.marketdata.NewsArticleRepository;
+import com.parkdh.stockadvisor.infrastructure.persistence.universe.MarketUniverseRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -29,18 +32,27 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.HexFormat;
 import java.util.List;
 
 @RequiredArgsConstructor
 @Service
 public class MarketDataCollectionService {
+    private static final ZoneId SEOUL_ZONE = ZoneId.of("Asia/Seoul");
+
     private final NewsArticleRepository newsArticleRepository;
     private final DisclosureEventRepository disclosureEventRepository;
     private final MacroObservationRepository macroObservationRepository;
     private final FundamentalMetricRepository fundamentalMetricRepository;
     private final RssNewsClient rssNewsClient;
+    private final NaverNewsClient naverNewsClient;
     private final DisclosureClient disclosureClient;
     private final FredMacroClient fredMacroClient;
     private final SecFundamentalClient secFundamentalClient;
@@ -48,21 +60,25 @@ public class MarketDataCollectionService {
     private final KisApiClient kisApiClient;
     private final MarketSignalScorer marketSignalScorer;
     private final SentimentAnalysisClient sentimentAnalysisClient;
+    private final MarketUniverseRepository marketUniverseRepository;
 
     public List<NewsArticleResponse> getNewsArticles(String market, String ticker, Integer limit) {
         int safeLimit = normalizeLimit(limit, 100, 1000, "news limit");
         PageRequest pageRequest = PageRequest.of(0, safeLimit);
         boolean hasMarket = hasValue(market) && !"ALL".equals(market);
         boolean hasTicker = hasValue(ticker);
+        LocalDate today = LocalDate.now(SEOUL_ZONE);
+        LocalDateTime from = today.atStartOfDay();
+        LocalDateTime to = today.atTime(LocalTime.MAX);
         List<NewsArticleEntity> entities;
         if (hasMarket && hasTicker) {
-            entities = newsArticleRepository.findByMarketAndTickerOrderByPublishedAtDesc(market, ticker, pageRequest);
+            entities = newsArticleRepository.findByMarketAndTickerAndPublishedAtBetweenOrderByPublishedAtDesc(market, ticker, from, to, pageRequest);
         } else if (hasMarket) {
-            entities = newsArticleRepository.findByMarketOrderByPublishedAtDesc(market, pageRequest);
+            entities = newsArticleRepository.findByMarketAndPublishedAtBetweenOrderByPublishedAtDesc(market, from, to, pageRequest);
         } else if (hasTicker) {
-            entities = newsArticleRepository.findByTickerOrderByPublishedAtDesc(ticker, pageRequest);
+            entities = newsArticleRepository.findByTickerAndPublishedAtBetweenOrderByPublishedAtDesc(ticker, from, to, pageRequest);
         } else {
-            entities = newsArticleRepository.findAllByOrderByPublishedAtDesc(pageRequest);
+            entities = newsArticleRepository.findByPublishedAtBetweenOrderByPublishedAtDesc(from, to, pageRequest);
         }
         return entities.stream().map(this::toResponse).toList();
     }
@@ -116,9 +132,29 @@ public class MarketDataCollectionService {
     public MarketDataCollectionSyncResponse syncNewsArticles(String market, String ticker, Integer limit) {
         String safeMarket = defaultMarket(market);
         int safeLimit = normalizeLimit(limit, 20, 100, "news sync limit");
-        List<RssNewsClient.NewsRow> rows = rssNewsClient.fetchNews(safeMarket, ticker, safeLimit);
+        String companyName = hasValue(ticker)
+                ? marketUniverseRepository.findById(MarketUniverseEntity.buildKey(safeMarket, ticker))
+                .map(MarketUniverseEntity::getName)
+                .orElse(null)
+                : null;
+        List<RssNewsClient.NewsRow> rows = collectNewsRows(safeMarket, ticker, companyName, safeLimit);
         List<NewsArticleEntity> saved = rows.stream().map(this::upsertNews).toList();
-        return new MarketDataCollectionSyncResponse("RSS", safeMarket, ticker, rows.size(), saved.size(), saved.stream().map(NewsArticleEntity::getArticleKey).limit(20).toList());
+        return new MarketDataCollectionSyncResponse("MULTI_SOURCE_NEWS", safeMarket, ticker, rows.size(), saved.size(), saved.stream().map(NewsArticleEntity::getArticleKey).limit(20).toList());
+    }
+
+    private List<RssNewsClient.NewsRow> collectNewsRows(String market, String ticker, String companyName, int limitPerSource) {
+        List<RssNewsClient.NewsRow> rows = new ArrayList<>();
+        if (isKoreanMarket(market)) {
+            rows.addAll(rssNewsClient.fetchGoogleNews(market, ticker, companyName, limitPerSource));
+            rows.addAll(naverNewsClient.fetchNews(market, ticker, companyName, limitPerSource));
+        } else {
+            rows.addAll(rssNewsClient.fetchYahooNews(market, ticker, limitPerSource));
+            rows.addAll(rssNewsClient.fetchGoogleNews(market, ticker, companyName, limitPerSource));
+        }
+        rows.sort(Comparator.comparing(RssNewsClient.NewsRow::publishedAt, Comparator.nullsLast(Comparator.reverseOrder())));
+        LinkedHashMap<String, RssNewsClient.NewsRow> uniqueByUrl = new LinkedHashMap<>();
+        rows.forEach(row -> uniqueByUrl.putIfAbsent(row.url(), row));
+        return uniqueByUrl.values().stream().limit((long) limitPerSource * 2).toList();
     }
 
     @Transactional

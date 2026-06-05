@@ -2,12 +2,14 @@ package com.parkdh.stockadvisor.api.dev; // 개발용 API 패키지를 선언한
 
 import com.parkdh.stockadvisor.application.dev.DevRecommendationGenerateService; // 개발용 추천 생성 서비스를 가져온다.
 import com.parkdh.stockadvisor.global.dto.ResultDto; // 공통 응답 DTO를 가져온다.
+import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation; // Swagger Operation 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.PostMapping; // POST 매핑 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.RequestMapping; // 공통 경로 매핑 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.RequestParam; // 요청 파라미터 어노테이션을 가져온다.
 import org.springframework.web.bind.annotation.RestController; // REST 컨트롤러 어노테이션을 가져온다.
 
+@Hidden
 @RestController // REST API 컨트롤러로 등록한다.
 @RequestMapping("/api/dev/recommendations") // 개발용 추천 API 공통 경로를 지정한다.
 public class DevRecommendationGenerateController { // 개발용 추천 생성 컨트롤러를 정의한다.

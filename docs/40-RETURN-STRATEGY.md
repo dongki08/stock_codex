@@ -3,7 +3,7 @@
 > 🧭 인덱스: [00-INDEX.md](00-INDEX.md) · 카테고리 40(수익전략) · 상태 🟢 완료 작업지시/후속 기준 · 기존 결함이력은 [41-DEFECTS-AND-FIXES.md](41-DEFECTS-AND-FIXES.md)
 >
 > **대상**: 이 문서를 읽는 AI/개발자가 현재 백엔드에 **바로 적용** 가능하도록 작성.
-> **코드 기준**: `apps/backend` · Spring Boot 3.3 · Java 21 · MSSQL · Flyway(최신 V10)
+> **코드 기준**: `apps/backend` · Spring Boot 3.3 · Java 21 · MSSQL · Flyway(최신 V13)
 > **읽는 법**: 각 TASK는 `대상 → 현황 → 문제 → 변경 → 검증` 순. 위에서부터 우선순위(P0→P3).
 > 모든 가중치/임계값은 `app_setting` 키-값으로 런타임 조정. 신규 기본값은 Flyway 마이그레이션 또는 `PUT /api/admin/settings/{key}`로 주입.
 
@@ -80,7 +80,7 @@ CREATE TABLE feature_snapshot (
 CREATE INDEX ix_feature_snapshot_date ON feature_snapshot (as_of_date, market);
 CREATE INDEX ix_feature_snapshot_ticker ON feature_snapshot (market, ticker, as_of_date);
 ```
-2. `UniverseFeatureBuilder`에 `buildFeatureAsOf(entity, LocalDate asOf)` 추가 — 가격/뉴스/공시/펀더멘털 조회를 **`asOf` 이하**로만 제한(현재 `OrderBy...Desc` 쿼리에 `...AndTradeDateLessThanEqual` / `...AndPublishedAtLessThanEqual` 변형 추가).
+2. `UniverseFeatureBuilder`에 `buildFeatureAsOf(entity, LocalDate asOf)` 추가 — 가격/공시/펀더멘털은 **`asOf` 이하**, 뉴스는 **`asOf` 당일 범위**로 제한해 미래참조와 오래된 뉴스 혼입을 차단한다.
 3. 신규 스케줄러 `FeatureSnapshotJob`(매 장마감 후): 유니버스 전 종목 `buildFeatureAsOf(today)` 저장.
 4. forward return 백필: T+5/T+20 거래일 종가로 `fwd_ret_*` 채우는 잡(`price_daily` 사용).
 

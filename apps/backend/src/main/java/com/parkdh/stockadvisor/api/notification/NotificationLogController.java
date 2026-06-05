@@ -62,7 +62,7 @@ public class NotificationLogController { // 알림 로그 컨트롤러를 정의
         return ResultDto.success(notificationLogService.getNotificationLog(id)); // 서비스 조회 결과를 성공 응답으로 래핑해 반환한다.
     } // 알림 로그 단건 조회 API를 종료한다.
 
-    @Operation(summary = "알림 로그 저장", description = """
+    @Operation(hidden = true, summary = "알림 로그 저장", description = """
             알림 발송 시도 결과를 저장한다.
             **사용 목적:**
             - Telegram/Kakao 발송 결과와 실패 사유 기록
